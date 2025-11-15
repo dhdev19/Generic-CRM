@@ -35,6 +35,15 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label for="sales_id" class="form-label">Sales Person</label>
+                        <select class="form-select" id="sales_id" name="sales_id" required>
+                            {% for sales in sales_persons %}
+                                <option value="{{ sales.id }}" {{ 'selected' if sales.id == query.sales_id else '' }}>{{ sales.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
                         <label for="source" class="form-label">Source</label>
                         <select class="form-select" id="source" name="source" required>
                             <option value="Gmb" {{ 'selected' if query.source == 'Gmb' else '' }}>Gmb</option>

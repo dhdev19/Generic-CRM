@@ -414,6 +414,8 @@ def edit_query(id):
         flash('Access denied')
         return redirect(url_for('admin_dashboard'))
     
+    sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
+    
     if request.method == 'POST':
         query.name = request.form['name']
         query.phone_number = request.form['phone_number']
@@ -423,8 +425,23 @@ def edit_query(id):
             query.source = request.form['source']
         query.closure = request.form['closure']
         
+        # Update sales person if changed
+        if 'sales_id' in request.form:
+            new_sales_id = int(request.form['sales_id'])
+            # Verify the sales person belongs to this admin
+            sales_person = Sales.query.filter_by(id=new_sales_id, admin_id=current_user.id).first()
+            if sales_person and query.sales_id != new_sales_id:
+                query.sales_id = new_sales_id
+                
+                # Update all follow-ups for this query to the new sales person
+                follow_ups = FollowUp.query.filter_by(query_id=query.id).all()
+                for follow_up in follow_ups:
+                    follow_up.sales_id = new_sales_id
+        
         db.session.commit()
+        
         # Send notification to sales person about query update
+        # If sales person changed, notify the new sales person
         try:
             send_new_query_notification_to_sales(query.sales_id, query)
         except Exception:
@@ -432,7 +449,7 @@ def edit_query(id):
         flash('Query updated successfully')
         return redirect(url_for('admin_dashboard'))
     
-    return render_template('edit_query.html', query=query)
+    return render_template('edit_query.html', query=query, sales_persons=sales_persons)
 
 @app.route('/admin/remove-query/<int:id>')
 @login_required
