@@ -424,6 +424,11 @@ def edit_query(id):
         query.closure = request.form['closure']
         
         db.session.commit()
+        # Send notification to sales person about query update
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+        except Exception:
+            pass
         flash('Query updated successfully')
         return redirect(url_for('admin_dashboard'))
     
