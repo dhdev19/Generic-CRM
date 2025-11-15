@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - CRM System{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-users me-2"></i>Sales Persons
+                </h5>
+                <a href="{{ url_for('add_sales') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add New
+                </a>
+            </div>
+            <div class="card-body">
+                {% if sales_persons %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for sales in sales_persons %}
+                                <tr>
+                                    <td>{{ sales.name }}</td>
+                                    <td>{{ sales.username }}</td>
+                                    <td>
+                                        <a href="{{ url_for('remove_sales', id=sales.id) }}" 
+                                           class="btn btn-danger btn-sm"
+                                           onclick="return confirm('Are you sure you want to remove this sales person?')">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No sales persons found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-question-circle me-2"></i>Queries
+                </h5>
+                <a href="{{ url_for('add_query') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add New
+                </a>
+            </div>
+            <div class="card-body">
+                {% if queries %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Sales Person</th>
+                                    <th>Customer</th>
+                                    <th>Service</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for query_tuple in queries %}
+                                    {% set query = query_tuple[0] %}
+                                    {% set sales_name = query_tuple[1] %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ sales_name }}</strong>
+                                    </td>
+                                    <td>
+                                        <strong>{{ query.name }}</strong><br>
+                                        <small class="text-muted">{{ query.phone_number }}</small>
+                                    </td>
+                                    <td>
+                                        <small>{{ query.service_query[:50] }}{% if query.service_query|length > 50 %}...{% endif %}</small>
+                                    </td>
+                                    <td>
+                                        {% set c = query.closure or 'pending' %}
+                                        <span class="badge {% if c == 'pending' %}bg-warning{% elif c == 'Positive' %}bg-success{% else %}bg-secondary{% endif %}">{{ c|title }}</span>
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm me-1">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a href="{{ url_for('remove_query', id=query.id) }}" 
+                                           class="btn btn-danger btn-sm"
+                                           onclick="return confirm('Are you sure you want to remove this query?')">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No queries found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar me-2"></i>Overview
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-users fa-2x text-info mb-2"></i>
+                            <h4>{{ sales_persons|length }}</h4>
+                            <small class="text-muted">Sales Persons</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-question-circle fa-2x text-warning mb-2"></i>
+                            <h4>{{ queries_list|length }}</h4>
+                            <small class="text-muted">Total Queries</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                            <h4>{{ queries_list|selectattr('closure', 'equalto', 'Positive')|list|length }}</h4>
+                            <small class="text-muted">Closed (Positive)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-clock fa-2x text-warning mb-2"></i>
+                            <h4>{{ queries_list|selectattr('closure', 'equalto', 'pending')|list|length }}</h4>
+                            <small class="text-muted">Pending Queries</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Sales Dashboard - CRM System{% endblock %}
+{% block page_title %}Sales Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-question-circle me-2"></i>My Queries
+                </h5>
+                <div>
+                    <a href="{{ url_for('sales_add_query') }}" class="btn btn-primary btn-sm me-2">
+                        <i class="fas fa-plus me-1"></i>Add Query
+                    </a>
+
+                </div>
+            </div>
+            <div class="card-body">
+                {% if queries %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Service</th>
+                                    <th>Source</th>
+                                    <th>Closure</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for query in queries %}
+                                <tr class="align-middle">
+                                    <td>
+                                        <strong>{{ query.name }}</strong><br>
+                                        <small class="text-muted">
+                                            <!-- Call Link -->
+                                            <a href="tel:{{ query.phone_number }}">{{ query.phone_number }}</a> |
+                                          
+                                            <!-- WhatsApp Link -->
+                                            <a href="https://wa.me/+91{{ query.phone_number }}" target="_blank">
+                                              WhatsApp
+                                            </a>
+                                          </small>
+                                          
+                                    </td>
+                                    <td>
+                                        <small>{{ query.service_query[:50] }}{% if query.service_query|length > 50 %}...{% endif %}</small>
+                                    </td>
+                                    <td>
+                                        <small>{{ (query.source or 'reference')|title }}</small>
+                                    </td>
+                                    <td>
+                                        {% set c = query.closure or 'pending' %}
+                                        <span class="badge {% if c == 'pending' %}bg-warning{% elif c == 'Positive' %}bg-success{% else %}bg-secondary{% endif %}">{{ c|title }}</span>
+                                    </td>
+                                    <td>
+                                        <small>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</small>
+                                    </td>
+                                    <td>
+                                        <form method="POST" action="{{ url_for('sales_edit_query', id=query.id) }}" class="d-inline">
+                                            <select class="form-select form-select-sm d-inline w-auto me-2" name="closure" onchange="this.form.submit()">
+                                                <option value="pending" {{ 'selected' if (query.closure or 'pending') == 'pending' else '' }}>Pending</option>
+                                                <option value="Positive" {{ 'selected' if query.closure == 'Positive' else '' }}>Positive</option>
+                                                <option value="call again" {{ 'selected' if query.closure == 'call again' else '' }}>Call Again</option>
+                                                <option value="bad mei bataenge" {{ 'selected' if query.closure == 'bad mei bataenge' else '' }}>Bad Mei Bataenge</option>
+                                                <option value="not intrested" {{ 'selected' if query.closure == 'not intrested' else '' }}>Not Interested</option>
+                                                <option value="wrong enquiry" {{ 'selected' if query.closure == 'wrong enquiry' else '' }}>Wrong Enquiry</option>
+                                                <option value="invalid" {{ 'selected' if query.closure == 'invalid' else '' }}>Invalid</option>
+                                                <option value="switch off" {{ 'selected' if query.closure == 'switch off' else '' }}>Switch Off</option>
+                                                <option value="not picked" {{ 'selected' if query.closure == 'not picked' else '' }}>Not Picked</option>
+                                            </select>
+                                        </form>
+                                        <a href="{{ url_for('add_followup') }}?query_id={{ query.id }}" class="btn btn-success btn-sm me-2">
+                                            <i class="fas fa-plus"></i> Add Follow Up
+                                        </a>
+                                        <button class="btn btn-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#fu-{{ query.id }}">
+                                            <i class="fas fa-eye"></i> View Follow Ups
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr class="collapse" id="fu-{{ query.id }}">
+                                    <td colspan="6">
+                                        <div class="p-2 bg-light border rounded">
+                                            <div class="fw-semibold mb-2">Follow Ups</div>
+                                            {% set fus = followups_by_query.get(query.id, []) %}
+                                            {% if fus %}
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm mb-0">
+                                                        <thead>
+                                                            <tr>
+                                                                <th style="width: 120px;">Date</th>
+                                                                <th>Remark</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% for fu in fus %}
+                                                            <tr>
+                                                                <td><small>{{ fu.date_of_contact.strftime('%Y-%m-%d') }}</small></td>
+                                                                <td><small>{{ fu.remark }}</small></td>
+                                                            </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            {% else %}
+                                                <small class="text-muted">No follow ups yet for this query.</small>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No queries found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar me-2"></i>My Overview
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-question-circle fa-2x text-warning mb-2"></i>
+                            <h4>{{ analytics.total }}</h4>
+                            <small class="text-muted">Total Queries</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-phone fa-2x text-info mb-2"></i>
+                            <h4>{{ follow_ups|length }}</h4>
+                            <small class="text-muted">Follow Ups</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                            <h4>{{ analytics.positive }}</h4>
+                            <small class="text-muted">Positive</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <div class="text-center">
+                                <i class="fas fa-clock fa-2x text-warning mb-2"></i>
+                                <h4>{{ analytics.pending }}</h4>
+                                <small class="text-muted">Pending</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line me-2"></i>Analytics
+                </h5>
+                <form class="d-flex gap-2" method="GET">
+                    <select class="form-select form-select-sm" name="year" style="max-width: 140px;">
+                        <option value="">All Years</option>
+                        {% for y in available_years %}
+                        <option value="{{ y }}" {% if filters.year == y|string %}selected{% endif %}>{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                    <select class="form-select form-select-sm" name="month" style="max-width: 140px;">
+                        <option value="">All Months</option>
+                        {% for m in range(1,13) %}
+                        <option value="{{ m }}" {% if filters.month == m|string %}selected{% endif %}>{{ '%02d' % m }}</option>
+                        {% endfor %}
+                    </select>
+                    <select class="form-select form-select-sm" name="source" style="max-width: 180px;">
+                        <option value="">All Sources</option>
+                        {% for s in available_sources %}
+                        <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+                </form>
+            </div>
+            <div class="card-body">
+                <div class="row text-center mb-3">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Call Again</h6>
+                            <h4>{{ analytics.call_again }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Bad Mei Bataenge</h6>
+                            <h4>{{ analytics.bad_mei_bataenge }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Not Interested</h6>
+                            <h4>{{ analytics.not_intrested }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Wrong Enquiry</h6>
+                            <h4>{{ analytics.wrong_enquiry }}</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Invalid</h6>
+                            <h4>{{ analytics.invalid }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Switch Off</h6>
+                            <h4>{{ analytics.switch_off }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">Not Picked</h6>
+                            <h4>{{ analytics.not_picked }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <h6 class="text-muted">by source</h6>
+                            <div class="small">
+                                {% for s, c in source_counts.items() %}
+                                    <div>{{ s }}: <strong>{{ c }}</strong></div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

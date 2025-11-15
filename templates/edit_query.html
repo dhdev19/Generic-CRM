@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Query - CRM System{% endblock %}
+{% block page_title %}Edit Query{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-edit me-2"></i>Edit Query
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Customer Name</label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ query.name }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="phone_number" class="form-label">Phone Number</label>
+                        <input type="tel" class="form-control" id="phone_number" name="phone_number" value="{{ query.phone_number }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="mail_id" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="mail_id" name="mail_id" value="{{ query.mail_id }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="service_query" class="form-label">Service Query</label>
+                        <textarea class="form-control" id="service_query" name="service_query" rows="4" required>{{ query.service_query }}</textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="source" class="form-label">Source</label>
+                        <select class="form-select" id="source" name="source" required>
+                            <option value="Gmb" {{ 'selected' if query.source == 'Gmb' else '' }}>Gmb</option>
+                            <option value="justdial" {{ 'selected' if query.source == 'justdial' else '' }}>Justdial</option>
+                            <option value="facebook" {{ 'selected' if query.source == 'facebook' else '' }}>Facebook</option>
+                            <option value="website" {{ 'selected' if query.source == 'website' else '' }}>Website</option>
+                            <option value="reference" {{ 'selected' if (query.source) == 'reference' else '' }}>Reference</option>
+                            <option value="cold approach" {{ 'selected' if query.source == 'cold approach' else '' }}>Cold Approach</option>
+                            <option value="youtube" {{ 'selected' if query.source == 'youtube' else '' }}>Youtube</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="closure" class="form-label">Closure</label>
+                        <select class="form-select" id="closure" name="closure" required>
+                            <option value="pending" {{ 'selected' if query.closure == 'pending' else '' }}>Pending</option>
+                            <option value="Positive" {{ 'selected' if query.closure == 'Positive' else '' }}>Positive</option>
+                            <option value="call again" {{ 'selected' if query.closure == 'call again' else '' }}>Call Again</option>
+                            <option value="bad mei bataenge" {{ 'selected' if query.closure == 'bad mei bataenge' else '' }}>Bad Mei Bataenge</option>
+                            <option value="not intrested" {{ 'selected' if query.closure == 'not intrested' else '' }}>Not Interested</option>
+                            <option value="wrong enquiry" {{ 'selected' if query.closure == 'wrong enquiry' else '' }}>Wrong Enquiry</option>
+                            <option value="invalid" {{ 'selected' if query.closure == 'invalid' else '' }}>Invalid</option>
+                            <option value="switch off" {{ 'selected' if query.closure == 'switch off' else '' }}>Switch Off</option>
+                            <option value="not picked" {{ 'selected' if query.closure == 'not picked' else '' }}>Not Picked</option>
+                        </select>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Update Query
+                        </button>
+                        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Super Admin Dashboard - CRM System{% endblock %}
+{% block page_title %}Super Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-shield me-2"></i>Super Admins
+                </h5>
+                <a href="{{ url_for('add_super_admin') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add New
+                </a>
+            </div>
+            <div class="card-body">
+                {% if super_admins %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Password</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for super_admin in super_admins %}
+                                <tr>
+                                    <td>{{ super_admin.name }}</td>
+                                    <td>{{ super_admin.username }}</td>
+                                    <td>
+                                        {% if super_admin.id != current_user.id %}
+                                        <a href="{{ url_for('remove_super_admin', id=super_admin.id) }}" 
+                                           class="btn btn-danger btn-sm"
+                                           onclick="return confirm('Are you sure you want to remove this super admin?')">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                        {% else %}
+                                        <span class="badge bg-success">Current User</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No super admins found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-tie me-2"></i>Admins
+                </h5>
+                <a href="{{ url_for('add_admin') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus me-1"></i>Add New
+                </a>
+            </div>
+            <div class="card-body">
+                {% if admins %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Password</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for admin in admins %}
+                                <tr>
+                                    <td>{{ admin.name }}</td>
+                                    <td>{{ admin.username }}</td>
+                                    <td class="text-danger fw-semibold">{{ admin.password_plain_text }}</td>
+                                    <td>
+                                        <a href="{{ url_for('remove_admin', id=admin.id) }}" 
+                                           class="btn btn-danger btn-sm"
+                                           onclick="return confirm('Are you sure you want to remove this admin?')">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No admins found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar me-2"></i>System Overview
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-user-shield fa-2x text-primary mb-2"></i>
+                            <h4>{{ super_admins|length }}</h4>
+                            <small class="text-muted">Super Admins</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-user-tie fa-2x text-success mb-2"></i>
+                            <h4>{{ admins|length }}</h4>
+                            <small class="text-muted">Admins</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-users fa-2x text-info mb-2"></i>
+                            <h4>0</h4>
+                            <small class="text-muted">Sales Persons</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="fas fa-question-circle fa-2x text-warning mb-2"></i>
+                            <h4>0</h4>
+                            <small class="text-muted">Total Queries</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

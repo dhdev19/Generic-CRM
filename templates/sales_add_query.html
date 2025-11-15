@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Add Query - CRM System{% endblock %}
+{% block page_title %}Add Query{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-plus me-2"></i>Add New Query
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Customer Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="phone_number" class="form-label">Phone Number</label>
+                        <input type="tel" class="form-control" id="phone_number" name="phone_number" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="mail_id" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="mail_id" name="mail_id" value="johndoe@example.com" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="service_query" class="form-label">Service Query</label>
+                        <textarea class="form-control" id="service_query" name="service_query" rows="4" required></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="source" class="form-label">Source</label>
+                        <select class="form-select" id="source" name="source" required>
+                            <option value="Gmb">Gmb</option>
+                            <option value="justdial">Justdial</option>
+                            <option value="facebook">Facebook</option>
+                            <option value="website">Website</option>
+                            <option value="reference">Reference</option>
+                            <option value="cold approach">Cold Approach</option>
+                            <option value="youtube">Youtube</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="closure" class="form-label">Closure</label>
+                        <select class="form-select" id="closure" name="closure" required>
+                            <option value="pending" selected>Pending</option>
+                            <option value="Positive">Positive</option>
+                            <option value="call again">Call Again</option>
+                            <option value="bad mei bataenge">Bad Mei Bataenge</option>
+                            <option value="not intrested">Not Interested</option>
+                            <option value="wrong enquiry">Wrong Enquiry</option>
+                            <option value="invalid">Invalid</option>
+                            <option value="switch off">Switch Off</option>
+                            <option value="not picked">Not Picked</option>
+                        </select>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Add Query
+                        </button>
+                        <a href="{{ url_for('sales_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

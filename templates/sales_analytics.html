@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - CRM System{% endblock %}
+{% block page_title %}Analytics{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="fas fa-filter me-2"></i>Filters
+        </h5>
+        <form class="d-flex gap-2" method="GET">
+            <select class="form-select form-select-sm" name="year" style="max-width: 140px;">
+                <option value="">All Years</option>
+                {% for y in available_years %}
+                <option value="{{ y }}" {% if filters.year == y|string %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+            <select class="form-select form-select-sm" name="month" style="max-width: 140px;">
+                <option value="">All Months</option>
+                {% for m in range(1,13) %}
+                <option value="{{ m }}" {% if filters.month == m|string %}selected{% endif %}>{{ '%02d' % m }}</option>
+                {% endfor %}
+            </select>
+            <select class="form-select form-select-sm" name="source" style="max-width: 180px;">
+                <option value="">All Sources</option>
+                {% for s in available_sources %}
+                <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+            <select class="form-select form-select-sm" name="closure" style="max-width: 200px;">
+                <option value="">All Closures</option>
+                {% for c in closure_options %}
+                <option value="{{ c }}" {% if filters.closure == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+        </form>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Summary</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2 d-flex justify-content-between">
+                    <span>Total</span>
+                    <strong>{{ results|length }}</strong>
+                </div>
+                <div class="small">
+                    {% for c, count in by_closure.items() %}
+                        <div class="d-flex justify-content-between">
+                            <span>{{ c|title }}</span>
+                            <strong>{{ count }}</strong>
+                        </div>
+                    {% endfor %}
+                </div>
+                <hr>
+                <h6 class="text-muted">By Source</h6>
+                <div class="small">
+                    {% for s, count in by_source.items() %}
+                        <div class="d-flex justify-content-between">
+                            <span>{{ s|title }}</span>
+                            <strong>{{ count }}</strong>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-table me-2"></i>Filtered Results</h6>
+            </div>
+            <div class="card-body">
+                {% if results %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Source</th>
+                                    <th>Closure</th>
+                                    <th>Service</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in results %}
+                                <tr>
+                                    <td><small>{{ r.date_of_enquiry.strftime('%Y-%m-%d') }}</small></td>
+                                    <td>
+                                        <strong>{{ r.name }}</strong><br>
+                                        <small class="text-muted">{{ r.phone_number }}</small>
+                                    </td>
+                                    <td><small>{{ (r.source or 'reference')|title }}</small></td>
+                                    <td>
+                                        {% set c = r.closure or 'pending' %}
+                                        <span class="badge {% if c == 'pending' %}bg-warning{% elif c == 'Positive' %}bg-success{% else %}bg-secondary{% endif %}">{{ c|title }}</span>
+                                    </td>
+                                    <td><small>{{ r.service_query[:40] }}{% if r.service_query|length > 40 %}...{% endif %}</small></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No results for the selected filters.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
