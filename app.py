@@ -463,9 +463,18 @@ def remove_query(id):
         flash('Access denied')
         return redirect(url_for('admin_dashboard'))
     
-    db.session.delete(query)
-    db.session.commit()
-    flash('Query removed successfully')
+    try:
+        # Delete all follow-ups associated with this query first
+        FollowUp.query.filter_by(query_id=id).delete()
+        
+        # Now delete the query
+        db.session.delete(query)
+        db.session.commit()
+        flash('Query removed successfully')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error removing query: {str(e)}')
+    
     return redirect(url_for('admin_dashboard'))
 
 # Admin analytics
