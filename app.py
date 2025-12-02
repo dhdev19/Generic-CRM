@@ -290,17 +290,45 @@ def admin_dashboard():
         return redirect(url_for('index'))
     
     sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
-    # Join Query with Sales to get sales person name, order by sales_id then by query id desc
-    queries = db.session.query(Query, Sales.name.label('sales_name')).join(
+
+    # Pagination setup
+    per_page = 25
+    page = request.args.get('page', 1, type=int)
+
+    # Base query joining Query with Sales to get sales person name
+    base_query = db.session.query(Query, Sales.name.label('sales_name')).join(
         Sales, Query.sales_id == Sales.id
     ).filter(
         Query.admin_id == current_user.id
-    ).order_by(Query.sales_id, Query.id.desc()).all()
+    )
+
+    # Total count for pagination
+    total_queries = base_query.count()
+    total_pages = (total_queries + per_page - 1) // per_page if total_queries > 0 else 1
+
+    # Paginated queries for current page, newest first
+    queries = base_query.order_by(Query.id.desc()).limit(per_page).offset((page - 1) * per_page).all()
+
+    # All queries for overview statistics (not paginated)
+    queries_list = Query.query.filter_by(admin_id=current_user.id).all()
+
+    # Follow-ups for visible queries only
+    visible_query_ids = [q[0].id for q in queries]
+    followups_by_query = {}
+    if visible_query_ids:
+        followups = FollowUp.query.filter(FollowUp.query_id.in_(visible_query_ids)).order_by(FollowUp.date_of_contact.desc()).all()
+        for fu in followups:
+            followups_by_query.setdefault(fu.query_id, []).append(fu)
     
-    # Extract Query objects for overview statistics
-    queries_list = [q[0] for q in queries]
-    
-    return render_template('admin_dashboard.html', sales_persons=sales_persons, queries=queries, queries_list=queries_list)
+    return render_template(
+        'admin_dashboard.html',
+        sales_persons=sales_persons,
+        queries=queries,
+        queries_list=queries_list,
+        followups_by_query=followups_by_query,
+        page=page,
+        total_pages=total_pages,
+    )
 
 @app.route('/admin/add-sales', methods=['GET', 'POST'])
 @login_required

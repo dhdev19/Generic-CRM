@@ -77,7 +77,7 @@
                                 {% for query_tuple in queries %}
                                     {% set query = query_tuple[0] %}
                                     {% set sales_name = query_tuple[1] %}
-                                <tr>
+                                <tr class="query-row" data-query-id="{{ query.id }}" style="cursor: pointer;">
                                     <td>
                                         <strong>{{ sales_name }}</strong>
                                     </td>
@@ -103,10 +103,45 @@
                                         </a>
                                     </td>
                                 </tr>
+                                <tr class="followups-row" data-query-id="{{ query.id }}" style="display: none;">
+                                    <td colspan="5">
+                                        {% set followups = followups_by_query.get(query.id) %}
+                                        {% if followups %}
+                                            <ul class="list-unstyled mb-0">
+                                                {% for fu in followups %}
+                                                    <li class="mb-1">
+                                                        <small class="text-muted">{{ fu.date_of_contact.strftime('%Y-%m-%d %H:%M') }}</small><br>
+                                                        {{ fu.remark }}
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        {% else %}
+                                            <em>No follow ups yet.</em>
+                                        {% endif %}
+                                    </td>
+                                </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
+
+                    {% if total_pages > 1 %}
+                    <nav aria-label="Queries pagination">
+                        <ul class="pagination justify-content-center">
+                            <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                                <a class="page-link" href="{{ url_for('admin_dashboard', page=page-1) }}">Previous</a>
+                            </li>
+                            {% for p in range(1, total_pages + 1) %}
+                                <li class="page-item {% if p == page %}active{% endif %}">
+                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=p) }}">{{ p }}</a>
+                                </li>
+                            {% endfor %}
+                            <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                                <a class="page-link" href="{{ url_for('admin_dashboard', page=page+1) }}">Next</a>
+                            </li>
+                        </ul>
+                    </nav>
+                    {% endif %}
                 {% else %}
                     <p class="text-muted text-center">No queries found.</p>
                 {% endif %}
@@ -158,4 +193,27 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var rows = document.querySelectorAll('.query-row');
+    rows.forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            // Ignore clicks on action buttons/links
+            if (event.target.closest('a, button, .btn')) {
+                return;
+            }
+            var queryId = this.getAttribute('data-query-id');
+            var followupRow = document.querySelector('.followups-row[data-query-id="' + queryId + '"]');
+            if (followupRow) {
+                if (followupRow.style.display === 'none' || followupRow.style.display === '') {
+                    followupRow.style.display = 'table-row';
+                } else {
+                    followupRow.style.display = 'none';
+                }
+            }
+        });
+    });
+});
+</script>
 {% endblock %}
