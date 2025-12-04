@@ -101,7 +101,7 @@
                                     <td><small>{{ (r.source or 'reference')|title }}</small></td>
                                     <td>
                                         {% set c = r.closure or 'pending' %}
-                                        <span class="badge {% if c == 'pending' %}bg-warning{% elif c == 'Positive' %}bg-success{% else %}bg-secondary{% endif %}">{{ c|title }}</span>
+                                        <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
                                     </td>
                                     <td><small>{{ r.service_query[:40] }}{% if r.service_query|length > 40 %}...{% endif %}</small></td>
                                 </tr>

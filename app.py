@@ -81,7 +81,9 @@ class Query(db.Model):
     mail_id = db.Column(db.String(120), nullable=False)
     # New source column and updated closure domain
     source = db.Column(db.String(50), default='reference')  # Gmb, justdial, facebook, website, reference, cold approach, youtube
-    closure = db.Column(db.String(30), default='pending')  # Positive, call again, bad mei bataenge, not intrested, wrong enquiry, invalid, switch off, not picked, pending
+    # Closures: Closed, Prospect, Positive, pending, call again, bad mei bataenge,
+    # not intrested, wrong enquiry, invalid, switch off, not picked
+    closure = db.Column(db.String(30), default='pending')
 
 class FollowUp(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -534,7 +536,19 @@ def admin_analytics():
     all_q = q.all()
     available_years = sorted({row.date_of_enquiry.year for row in all_q})
     available_sources = sorted({(row.source or '').strip() for row in all_q if (row.source or '').strip()})
-    closure_options = ['pending','Positive','call again','bad mei bataenge','not intrested','wrong enquiry','invalid','switch off','not picked']
+    closure_options = [
+        'Closed',
+        'Prospect',
+        'Positive',
+        'pending',
+        'call again',
+        'bad mei bataenge',
+        'not intrested',
+        'wrong enquiry',
+        'invalid',
+        'switch off',
+        'not picked',
+    ]
 
     # Apply filters
     try:
@@ -686,6 +700,8 @@ def sales_dashboard():
 
     analytics = {
         'total': len(queries_list),
+        'closed': count_by_closure('Closed'),
+        'prospect': count_by_closure('Prospect'),
         'pending': count_by_closure('pending'),
         'positive': count_by_closure('Positive'),
         'call_again': count_by_closure('call again'),
@@ -780,7 +796,19 @@ def sales_analytics():
     all_for_user = q.all()
     available_years = sorted({item.date_of_enquiry.year for item in all_for_user})
     available_sources = sorted({(item.source or '').strip() for item in all_for_user if (item.source or '').strip()})
-    closure_options = ['pending','Positive','call again','bad mei bataenge','not intrested','wrong enquiry','invalid','switch off','not picked']
+    closure_options = [
+        'Closed',
+        'Prospect',
+        'Positive',
+        'pending',
+        'call again',
+        'bad mei bataenge',
+        'not intrested',
+        'wrong enquiry',
+        'invalid',
+        'switch off',
+        'not picked',
+    ]
 
     # Apply filters
     filtered = Query.query.filter_by(sales_id=current_user.id)

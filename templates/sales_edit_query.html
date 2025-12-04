@@ -43,7 +43,9 @@
                         <label for="closure" class="form-label">Closure</label>
                         <select class="form-select" id="closure" name="closure" required>
                             <option value="pending" {{ 'selected' if query.closure == 'pending' else '' }}>Pending</option>
+                            <option value="Prospect" {{ 'selected' if query.closure == 'Prospect' else '' }}>Prospect</option>
                             <option value="Positive" {{ 'selected' if query.closure == 'Positive' else '' }}>Positive</option>
+                            <option value="Closed" {{ 'selected' if query.closure == 'Closed' else '' }}>Closed</option>
                             <option value="call again" {{ 'selected' if query.closure == 'call again' else '' }}>Call Again</option>
                             <option value="bad mei bataenge" {{ 'selected' if query.closure == 'bad mei bataenge' else '' }}>Bad Mei Bataenge</option>
                             <option value="not intrested" {{ 'selected' if query.closure == 'not intrested' else '' }}>Not Interested</option>

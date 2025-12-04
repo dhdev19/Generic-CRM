@@ -60,14 +60,16 @@
                                     </td>
                                     <td>
                                         {% set c = query.closure or 'pending' %}
-                                        <span class="badge {% if c == 'pending' %}bg-warning{% elif c == 'Positive' %}bg-success{% else %}bg-secondary{% endif %}">{{ c|title }}</span>
+                                        <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
                                     </td>
                                     
                                     <td>
                                         <form method="POST" action="{{ url_for('sales_edit_query', id=query.id) }}" class="d-inline">
                                             <select class="form-select form-select-sm d-inline w-auto me-2" name="closure" onchange="this.form.submit()">
                                                 <option value="pending" {{ 'selected' if (query.closure or 'pending') == 'pending' else '' }}>Pending</option>
+                                                <option value="Prospect" {{ 'selected' if query.closure == 'Prospect' else '' }}>Prospect</option>
                                                 <option value="Positive" {{ 'selected' if query.closure == 'Positive' else '' }}>Positive</option>
+                                                <option value="Closed" {{ 'selected' if query.closure == 'Closed' else '' }}>Closed</option>
                                                 <option value="call again" {{ 'selected' if query.closure == 'call again' else '' }}>Call Again</option>
                                                 <option value="bad mei bataenge" {{ 'selected' if query.closure == 'bad mei bataenge' else '' }}>Bad Mei Bataenge</option>
                                                 <option value="not intrested" {{ 'selected' if query.closure == 'not intrested' else '' }}>Not Interested</option>
