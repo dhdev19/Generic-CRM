@@ -24,17 +24,21 @@
                         <table class="table table-hover">
                             <thead>
                                 <tr>
+                                    <th>Date</th>
                                     <th>Customer</th>
                                     <th>Service</th>
                                     <th>Source</th>
                                     <th>Closure</th>
-                                    <th>Date</th>
+                                    
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for query in queries %}
                                 <tr class="align-middle">
+                                    <td>
+                                        <small>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</small>
+                                    </td>
                                     <td>
                                         <strong>{{ query.name }}</strong><br>
                                         <small class="text-muted">
@@ -58,9 +62,7 @@
                                         {% set c = query.closure or 'pending' %}
                                         <span class="badge {% if c == 'pending' %}bg-warning{% elif c == 'Positive' %}bg-success{% else %}bg-secondary{% endif %}">{{ c|title }}</span>
                                     </td>
-                                    <td>
-                                        <small>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</small>
-                                    </td>
+                                    
                                     <td>
                                         <form method="POST" action="{{ url_for('sales_edit_query', id=query.id) }}" class="d-inline">
                                             <select class="form-select form-select-sm d-inline w-auto me-2" name="closure" onchange="this.form.submit()">
