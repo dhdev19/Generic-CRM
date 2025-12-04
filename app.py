@@ -634,8 +634,19 @@ def sales_dashboard():
     except Exception:
         pass
 
-    # queries = filtered.all()
-    queries = filtered.order_by(Query.id.desc()).all()
+    # Pagination setup
+    per_page = 25
+    page = request.args.get('page', 1, type=int)
+
+    # Total count for pagination (after filters applied)
+    total_queries = filtered.count()
+    total_pages = (total_queries + per_page - 1) // per_page if total_queries > 0 else 1
+
+    # Paginated queries for current page, newest first
+    queries = filtered.order_by(Query.id.desc()).limit(per_page).offset((page - 1) * per_page).all()
+
+    # All queries for overview statistics (not paginated, but still filtered)
+    queries_list = filtered.all()
 
 
     # Build combined activity (queries + follow-ups) sorted by date desc
@@ -669,12 +680,12 @@ def sales_dashboard():
     for lst in followups_by_query.values():
         lst.sort(key=lambda x: x.date_of_contact, reverse=True)
 
-    # Analytics summary
+    # Analytics summary (using all filtered queries, not just paginated ones)
     def count_by_closure(value: str) -> int:
-        return sum(1 for q in queries if (q.closure or '').strip() == value)
+        return sum(1 for q in queries_list if (q.closure or '').strip() == value)
 
     analytics = {
-        'total': len(queries),
+        'total': len(queries_list),
         'pending': count_by_closure('pending'),
         'positive': count_by_closure('Positive'),
         'call_again': count_by_closure('call again'),
@@ -686,9 +697,9 @@ def sales_dashboard():
         'not_picked': count_by_closure('not picked'),
     }
 
-    # Source distribution
+    # Source distribution (using all filtered queries)
     from collections import Counter
-    source_counts = Counter([(q.source or 'reference') for q in queries])
+    source_counts = Counter([(q.source or 'reference') for q in queries_list])
 
     return render_template(
         'sales_dashboard.html',
@@ -705,6 +716,8 @@ def sales_dashboard():
         },
         available_years=available_years,
         available_sources=available_sources,
+        page=page,
+        total_pages=total_pages,
     )
 
 @app.route('/sales/add-query', methods=['GET', 'POST'])
