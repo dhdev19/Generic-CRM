@@ -66,6 +66,41 @@
                 </div>
             </div>
             <div class="card-body">
+                <!-- Search Bar -->
+                <form method="GET" action="{{ url_for('admin_dashboard') }}" class="mb-3">
+                    <div class="row g-2">
+                        <div class="col-md-8">
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="fas fa-search"></i>
+                                </span>
+                                <input type="text" 
+                                       class="form-control" 
+                                       name="search" 
+                                       placeholder="Search by customer name or phone number..." 
+                                       value="{{ search_query }}">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search me-1"></i>Search
+                                </button>
+                                {% if search_query %}
+                                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                                    <i class="fas fa-times me-1"></i>Clear
+                                </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </form>
+                
+                {% if search_query %}
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-info-circle me-2"></i>Showing results for: <strong>"{{ search_query }}"</strong> ({{ total_queries }} result{{ 's' if total_queries != 1 else '' }})
+                </div>
+                {% endif %}
                 {% if queries %}
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -140,21 +175,33 @@
                     <nav aria-label="Queries pagination">
                         <ul class="pagination justify-content-center">
                             <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-                                <a class="page-link" href="{{ url_for('admin_dashboard', page=page-1) }}">Previous</a>
+                                {% if page > 1 %}
+                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=page-1, search=search_query if search_query else None) }}">Previous</a>
+                                {% else %}
+                                    <span class="page-link">Previous</span>
+                                {% endif %}
                             </li>
                             {% for p in range(1, total_pages + 1) %}
                                 <li class="page-item {% if p == page %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=p) }}">{{ p }}</a>
+                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=p, search=search_query if search_query else None) }}">{{ p }}</a>
                                 </li>
                             {% endfor %}
                             <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-                                <a class="page-link" href="{{ url_for('admin_dashboard', page=page+1) }}">Next</a>
+                                {% if page < total_pages %}
+                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=page+1, search=search_query if search_query else None) }}">Next</a>
+                                {% else %}
+                                    <span class="page-link">Next</span>
+                                {% endif %}
                             </li>
                         </ul>
                     </nav>
                     {% endif %}
                 {% else %}
-                    <p class="text-muted text-center">No queries found.</p>
+                    {% if search_query %}
+                        <p class="text-muted text-center">No queries found matching "{{ search_query }}".</p>
+                    {% else %}
+                        <p class="text-muted text-center">No queries found.</p>
+                    {% endif %}
                 {% endif %}
             </div>
         </div>

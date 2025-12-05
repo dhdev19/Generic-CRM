@@ -6,7 +6,7 @@ from datetime import datetime
 import os
 from config import config
 import pymysql
-from sqlalchemy import desc 
+from sqlalchemy import desc, or_ 
 # Firebase Admin SDK (optional; initialized if creds provided)
 firebase_admin = None
 try:
@@ -296,6 +296,9 @@ def admin_dashboard():
     # Pagination setup
     per_page = 25
     page = request.args.get('page', 1, type=int)
+    
+    # Search parameter
+    search_query = request.args.get('search', '').strip()
 
     # Base query joining Query with Sales to get sales person name
     base_query = db.session.query(Query, Sales.name.label('sales_name')).join(
@@ -303,6 +306,14 @@ def admin_dashboard():
     ).filter(
         Query.admin_id == current_user.id
     )
+    
+    # Apply search filter if provided
+    if search_query:
+        search_filter = or_(
+            Query.name.ilike(f'%{search_query}%'),
+            Query.phone_number.ilike(f'%{search_query}%')
+        )
+        base_query = base_query.filter(search_filter)
 
     # Total count for pagination
     total_queries = base_query.count()
@@ -311,7 +322,7 @@ def admin_dashboard():
     # Paginated queries for current page, newest first
     queries = base_query.order_by(Query.id.desc()).limit(per_page).offset((page - 1) * per_page).all()
 
-    # All queries for overview statistics (not paginated)
+    # All queries for overview statistics (not paginated, without search filter)
     queries_list = Query.query.filter_by(admin_id=current_user.id).all()
 
     # Follow-ups for visible queries only
@@ -330,6 +341,7 @@ def admin_dashboard():
         followups_by_query=followups_by_query,
         page=page,
         total_pages=total_pages,
+        search_query=search_query,
     )
 
 @app.route('/admin/add-sales', methods=['GET', 'POST'])
