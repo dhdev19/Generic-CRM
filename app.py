@@ -1154,7 +1154,8 @@ def api_form_add():
                 return jsonify({"status": "error", "message": f"Missing required field: {field}"}), 400
         
         # Handle email - default to johndoe@example.com if empty (matching Apps Script behavior)
-        mail_id = data.get("mail_id", "").strip() if data.get("mail_id") else ""
+        # Convert to string first in case it's an integer or other type
+        mail_id = str(data.get("mail_id", "")).strip() if data.get("mail_id") else ""
         if not mail_id:
             mail_id = "johndoe@example.com"
         
@@ -1168,7 +1169,8 @@ def api_form_add():
         def normalize_source(source_str):
             if not source_str:
                 return "cold approach"
-            source_str = source_str.strip()
+            # Convert to string first in case it's an integer or other type
+            source_str = str(source_str).strip()
             source_lower = source_str.lower()
             # Map Google Form values to system values (case-sensitive matching)
             source_map = {
@@ -1201,7 +1203,8 @@ def api_form_add():
             return source_map.get(source_str, source_map.get(source_lower, "cold approach"))
         
         # Use source from payload if provided, otherwise default to 'cold approach'
-        source_input = data.get("source", "").strip() if data.get("source") else ""
+        # Convert to string first in case it's an integer or other type
+        source_input = str(data.get("source", "")).strip() if data.get("source") else ""
         source = normalize_source(source_input)
         date_of_enquiry = datetime.utcnow()
         
@@ -1215,16 +1218,22 @@ def api_form_add():
         if not sales_user:
             return jsonify({"status": "error", "message": "Sales user not found"}), 404
         
+        # Convert all fields to strings before stripping (Google Sheets may send integers)
+        name = str(data["name"]).strip()
+        phone_number = str(data["phone_number"]).strip()
+        service_query = str(data["service_query"]).strip()
+        closure = str(data.get("closure", "pending")).strip()
+        
         # Create and save query
         query = Query(
             sales_id=sales_id,
             admin_id=admin_id,
-            name=data["name"].strip(),
-            phone_number=data["phone_number"].strip(),
-            service_query=data["service_query"].strip(),
+            name=name,
+            phone_number=phone_number,
+            service_query=service_query,
             mail_id=mail_id,
             source=source,
-            closure=data.get("closure", "pending").strip(),
+            closure=closure,
             date_of_enquiry=date_of_enquiry
         )
         
