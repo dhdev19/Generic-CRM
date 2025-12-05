@@ -1084,6 +1084,116 @@ def api_website_lead():
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# API endpoint for Google Forms submissions
+@app.route("/api/formAdd", methods=["POST"])
+def api_form_add():
+    """
+    Endpoint for Google Forms submissions via Apps Script.
+    Accepts JSON with form data and creates a query.
+    Uses hardcoded values: admin_id=3, sales_id=0, source='cold approach' (or from payload)
+    """
+    try:
+        # Check if request has JSON content
+        if not request.is_json:
+            return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
+        
+        data = request.json
+        
+        # Validate required fields
+        required_fields = ["name", "phone_number", "service_query", "mail_id"]
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"status": "error", "message": f"Missing required field: {field}"}), 400
+        
+        # Hardcoded values - same as website endpoint
+        admin_id = 3
+        sales_id = 0
+        
+        # Normalize source to match exact values used in the system
+        # Google Form dropdown values: GMB, Justdial, Facebook, Website, Reference, Cold Approach, Youtube, Other
+        # System values: Gmb, justdial, facebook, website, reference, cold approach, youtube
+        def normalize_source(source_str):
+            if not source_str:
+                return "cold approach"
+            source_str = source_str.strip()
+            source_lower = source_str.lower()
+            # Map Google Form values to system values (case-sensitive matching)
+            source_map = {
+                # Google Form exact values
+                "GMB": "Gmb",
+                "Justdial": "justdial",
+                "Facebook": "facebook",
+                "Website": "website",
+                "Reference": "reference",
+                "Cold Approach": "cold approach",
+                "Youtube": "youtube",
+                "Other": "cold approach",  # Other defaults to cold approach
+                # Common variations (case-insensitive)
+                "gmb": "Gmb",
+                "justdial": "justdial",
+                "just dial": "justdial",
+                "facebook": "facebook",
+                "fb": "facebook",
+                "website": "website",
+                "web": "website",
+                "reference": "reference",
+                "ref": "reference",
+                "cold approach": "cold approach",
+                "cold": "cold approach",
+                "youtube": "youtube",
+                "yt": "youtube",
+                "other": "cold approach",
+            }
+            # First try exact match, then try lowercase match
+            return source_map.get(source_str, source_map.get(source_lower, "cold approach"))
+        
+        # Use source from payload if provided, otherwise default to 'cold approach'
+        source_input = data.get("source", "").strip() if data.get("source") else ""
+        source = normalize_source(source_input)
+        date_of_enquiry = datetime.utcnow()
+        
+        # Verify admin exists
+        admin_user = Admin.query.get(admin_id)
+        if not admin_user:
+            return jsonify({"status": "error", "message": "Admin not found"}), 404
+        
+        # Verify sales exists
+        sales_user = Sales.query.get(sales_id)
+        if not sales_user:
+            return jsonify({"status": "error", "message": "Sales user not found"}), 404
+        
+        # Create and save query
+        query = Query(
+            sales_id=sales_id,
+            admin_id=admin_id,
+            name=data["name"].strip(),
+            phone_number=data["phone_number"].strip(),
+            service_query=data["service_query"].strip(),
+            mail_id=data["mail_id"].strip(),
+            source=source,
+            closure=data.get("closure", "pending").strip(),
+            date_of_enquiry=date_of_enquiry
+        )
+        
+        db.session.add(query)
+        db.session.commit()
+        
+        # Send FCM notification to sales person
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+        except Exception:
+            pass
+        
+        return jsonify({
+            "status": "success", 
+            "message": "Query added successfully",
+            "query_id": query.id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # ------------------------
 # Mobile App JSON Endpoints
 # ------------------------
