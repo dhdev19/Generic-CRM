@@ -1099,11 +1099,16 @@ def api_form_add():
         
         data = request.json
         
-        # Validate required fields
-        required_fields = ["name", "phone_number", "service_query", "mail_id"]
+        # Validate required fields (mail_id is optional, will default if empty)
+        required_fields = ["name", "phone_number", "service_query"]
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"status": "error", "message": f"Missing required field: {field}"}), 400
+        
+        # Handle email - default to johndoe@example.com if empty (matching Apps Script behavior)
+        mail_id = data.get("mail_id", "").strip() if data.get("mail_id") else ""
+        if not mail_id:
+            mail_id = "johndoe@example.com"
         
         # Hardcoded values - same as website endpoint
         admin_id = 3
@@ -1169,7 +1174,7 @@ def api_form_add():
             name=data["name"].strip(),
             phone_number=data["phone_number"].strip(),
             service_query=data["service_query"].strip(),
-            mail_id=data["mail_id"].strip(),
+            mail_id=mail_id,
             source=source,
             closure=data.get("closure", "pending").strip(),
             date_of_enquiry=date_of_enquiry
