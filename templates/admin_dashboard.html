@@ -56,9 +56,14 @@
                 <h5 class="mb-0">
                     <i class="fas fa-question-circle me-2"></i>Queries
                 </h5>
-                <a href="{{ url_for('add_query') }}" class="btn btn-primary btn-sm">
-                    <i class="fas fa-plus me-1"></i>Add New
-                </a>
+                <div>
+                    <button type="button" id="bulkDeleteBtn" class="btn btn-danger btn-sm me-2" style="display: none;" onclick="bulkDeleteQueries()">
+                        <i class="fas fa-trash me-1"></i>Delete Selected
+                    </button>
+                    <a href="{{ url_for('add_query') }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-plus me-1"></i>Add New
+                    </a>
+                </div>
             </div>
             <div class="card-body">
                 {% if queries %}
@@ -66,6 +71,9 @@
                         <table class="table table-hover">
                             <thead>
                                 <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                                    </th>
                                     <th>Sales Person</th>
                                     <th>Customer</th>
                                     <th>Service</th>
@@ -78,6 +86,9 @@
                                     {% set query = query_tuple[0] %}
                                     {% set sales_name = query_tuple[1] %}
                                 <tr class="query-row" data-query-id="{{ query.id }}" style="cursor: pointer;">
+                                    <td onclick="event.stopPropagation();">
+                                        <input type="checkbox" class="query-checkbox" value="{{ query.id }}" onchange="updateBulkDeleteButton()">
+                                    </td>
                                     <td>
                                         <strong>{{ sales_name }}</strong>
                                     </td>
@@ -104,7 +115,7 @@
                                     </td>
                                 </tr>
                                 <tr class="followups-row" data-query-id="{{ query.id }}" style="display: none;">
-                                    <td colspan="5">
+                                    <td colspan="6">
                                         {% set followups = followups_by_query.get(query.id) %}
                                         {% if followups %}
                                             <ul class="list-unstyled mb-0">
@@ -199,8 +210,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var rows = document.querySelectorAll('.query-row');
     rows.forEach(function (row) {
         row.addEventListener('click', function (event) {
-            // Ignore clicks on action buttons/links
-            if (event.target.closest('a, button, .btn')) {
+            // Ignore clicks on action buttons/links and checkboxes
+            if (event.target.closest('a, button, .btn, input[type="checkbox"]')) {
                 return;
             }
             var queryId = this.getAttribute('data-query-id');
@@ -215,5 +226,90 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 });
+
+function toggleSelectAll() {
+    var selectAll = document.getElementById('selectAll');
+    var checkboxes = document.querySelectorAll('.query-checkbox');
+    checkboxes.forEach(function(checkbox) {
+        checkbox.checked = selectAll.checked;
+    });
+    updateBulkDeleteButton();
+}
+
+function updateBulkDeleteButton() {
+    var checkboxes = document.querySelectorAll('.query-checkbox:checked');
+    var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (checkboxes.length > 0) {
+        bulkDeleteBtn.style.display = 'inline-block';
+        bulkDeleteBtn.textContent = 'Delete Selected (' + checkboxes.length + ')';
+    } else {
+        bulkDeleteBtn.style.display = 'none';
+        document.getElementById('selectAll').checked = false;
+    }
+}
+
+function bulkDeleteQueries() {
+    var checkboxes = document.querySelectorAll('.query-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Please select at least one query to delete.');
+        return;
+    }
+    
+    var queryIds = Array.from(checkboxes).map(function(cb) { return cb.value; });
+    var count = queryIds.length;
+    
+    if (!confirm('Are you sure you want to delete ' + count + ' query/queries? This action cannot be undone.')) {
+        return;
+    }
+    
+    // Show loading state
+    var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    var originalText = bulkDeleteBtn.innerHTML;
+    bulkDeleteBtn.disabled = true;
+    bulkDeleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+    
+    // Send POST request to delete endpoint
+    fetch('{{ url_for("bulk_delete_queries") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query_ids: queryIds })
+    })
+    .then(function(response) {
+        return response.json();
+    })
+    .then(function(data) {
+        if (data.status === 'success') {
+            // Remove deleted rows from table
+            queryIds.forEach(function(id) {
+                var row = document.querySelector('.query-row[data-query-id="' + id + '"]');
+                var followupRow = document.querySelector('.followups-row[data-query-id="' + id + '"]');
+                if (row) row.remove();
+                if (followupRow) followupRow.remove();
+            });
+            
+            // Reset select all checkbox
+            document.getElementById('selectAll').checked = false;
+            updateBulkDeleteButton();
+            
+            // Show success message
+            alert('Successfully deleted ' + count + ' query/queries.');
+            
+            // Reload page to refresh data
+            window.location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Failed to delete queries'));
+            bulkDeleteBtn.disabled = false;
+            bulkDeleteBtn.innerHTML = originalText;
+        }
+    })
+    .catch(function(error) {
+        console.error('Error:', error);
+        alert('An error occurred while deleting queries.');
+        bulkDeleteBtn.disabled = false;
+        bulkDeleteBtn.innerHTML = originalText;
+    });
+}
 </script>
 {% endblock %}

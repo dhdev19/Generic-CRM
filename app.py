@@ -507,6 +507,54 @@ def remove_query(id):
     
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/bulk-delete-queries', methods=['POST'])
+@login_required
+def bulk_delete_queries():
+    if session.get('user_type') != 'admin':
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    
+    try:
+        data = request.json
+        if not data or 'query_ids' not in data:
+            return jsonify({"status": "error", "message": "No query IDs provided"}), 400
+        
+        query_ids = data.get('query_ids', [])
+        if not isinstance(query_ids, list) or len(query_ids) == 0:
+            return jsonify({"status": "error", "message": "Invalid query IDs"}), 400
+        
+        # Verify all queries belong to the current admin
+        queries = Query.query.filter(
+            Query.id.in_(query_ids),
+            Query.admin_id == current_user.id
+        ).all()
+        
+        if len(queries) != len(query_ids):
+            return jsonify({"status": "error", "message": "Some queries not found or access denied"}), 403
+        
+        deleted_count = 0
+        for query in queries:
+            try:
+                # Delete all follow-ups associated with this query first
+                FollowUp.query.filter_by(query_id=query.id).delete()
+                
+                # Delete the query
+                db.session.delete(query)
+                deleted_count += 1
+            except Exception as e:
+                db.session.rollback()
+                return jsonify({"status": "error", "message": f"Error deleting query {query.id}: {str(e)}"}), 500
+        
+        db.session.commit()
+        return jsonify({
+            "status": "success",
+            "message": f"Successfully deleted {deleted_count} query/queries",
+            "deleted_count": deleted_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # Admin analytics
 @app.route('/admin/analytics')
 @login_required
