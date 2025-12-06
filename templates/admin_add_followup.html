@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Add Follow Up - CRM System{% endblock %}
+{% block page_title %}Add Follow Up{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-phone me-2"></i>Add New Follow Up
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {% if selected_query %}
+                        <input type="hidden" name="query_id" value="{{ selected_query.id }}">
+                        <div class="mb-3">
+                            <label class="form-label">Related Query</label>
+                            <input type="text" class="form-control" value="{{ selected_query.name }} - {{ selected_query.phone_number }}" disabled>
+                        </div>
+                    {% else %}
+                        <div class="mb-3">
+                            <label for="query_id" class="form-label">Related Query</label>
+                            <select class="form-select" id="query_id" name="query_id" required>
+                                <option value="">Select a query</option>
+                                {% for q in queries %}
+                                <option value="{{ q.id }}">{{ q.name }} - {{ q.phone_number }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        <label for="date_of_contact" class="form-label">Date of Contact</label>
+                        <input type="datetime-local" class="form-control" id="date_of_contact" name="date_of_contact" required>
+                        <div class="form-text">Select the date and time when the follow up contact was made</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="remark" class="form-label">Follow Up Remark</label>
+                        <textarea class="form-control" id="remark" name="remark" rows="4" placeholder="Enter details about the follow up contact..." required></textarea>
+                        <div class="form-text">Describe the conversation, outcome, or next steps</div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Add Follow Up
+                        </button>
+                        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

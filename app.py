@@ -582,6 +582,62 @@ def update_query_sales():
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/admin/add-followup', methods=['GET', 'POST'])
+@login_required
+def admin_add_followup():
+    if session.get('user_type') != 'admin':
+        flash('Access denied')
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        remark = request.form['remark']
+        query_id = request.form.get('query_id')
+        date_of_contact_str = request.form.get('date_of_contact')
+        
+        if not query_id:
+            flash('Please select a query')
+            return redirect(url_for('admin_add_followup'))
+        
+        if not date_of_contact_str:
+            flash('Please select a date of contact')
+            return redirect(url_for('admin_add_followup'))
+        
+        # Parse the datetime-local input
+        try:
+            date_of_contact = datetime.fromisoformat(date_of_contact_str.replace('Z', '+00:00'))
+        except ValueError:
+            flash('Invalid date format')
+            return redirect(url_for('admin_add_followup'))
+        
+        # Get the query and verify it belongs to this admin
+        query = Query.query.get_or_404(int(query_id))
+        if query.admin_id != current_user.id:
+            flash('Access denied')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Create follow-up with the query's sales_id (not admin's id)
+        new_followup = FollowUp(
+            admin_id=current_user.id,
+            sales_id=query.sales_id,  # Use the query's sales_id
+            query_id=query.id,
+            remark=remark,
+            date_of_contact=date_of_contact
+        )
+        db.session.add(new_followup)
+        db.session.commit()
+        flash('Follow up added successfully')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Provide admin's queries for selection
+    selected_query = None
+    arg_qid = request.args.get('query_id')
+    if arg_qid and arg_qid.isdigit():
+        selected_query = Query.query.get(int(arg_qid))
+        if not selected_query or selected_query.admin_id != current_user.id:
+            selected_query = None
+    queries = Query.query.filter_by(admin_id=current_user.id).order_by(Query.id.desc()).all()
+    return render_template('admin_add_followup.html', queries=queries, selected_query=selected_query)
+
 @app.route('/admin/bulk-delete-queries', methods=['POST'])
 @login_required
 def bulk_delete_queries():
