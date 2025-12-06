@@ -1128,6 +1128,15 @@ def api_website_lead():
         db.session.add(query)
         db.session.commit()
         
+        # Reassign from default sales to actual sales person
+        try:
+            assign_sales_rep_to_query(query.id)
+        except Exception:
+            pass
+        
+        # Refresh query to get updated sales_id after reassignment
+        db.session.refresh(query)
+        
         # Notify sales devices
         try:
             send_new_query_notification_to_sales(query.sales_id, query)
@@ -1251,6 +1260,15 @@ def api_form_add():
         
         db.session.add(query)
         db.session.commit()
+        
+        # Reassign from default sales to actual sales person
+        try:
+            assign_sales_rep_to_query(query.id)
+        except Exception:
+            pass
+        
+        # Refresh query to get updated sales_id after reassignment
+        db.session.refresh(query)
         
         # Send FCM notification to sales person
         try:
@@ -1501,6 +1519,38 @@ def send_new_query_notification_to_sales(sales_id: int, q: Query):
     body = f"{q.name} - {q.service_query[:30]}"
     data = {"query_id": str(q.id), "name": q.name, "phone": q.phone_number}
     return send_notification_to_sales_device(sales_id, title, body, data)
+
+def assign_sales_rep_to_query(query_id):
+    """
+    Reassigns a query from default sales to the sales rep with the least queries.
+    This function finds all sales reps for the query's admin, excludes the current sales rep,
+    and assigns the query to the one with the fewest queries.
+    """
+    query = Query.query.get(query_id)
+    if not query:
+        return
+    
+    admin_id = query.admin_id
+    current_sales_id = query.sales_id
+    
+    # Get all sales reps for this admin, excluding the current one
+    sales_reps = Sales.query.filter_by(admin_id=admin_id).filter(Sales.id != current_sales_id).all()
+    
+    # If no other sales reps available, keep the current assignment
+    if not sales_reps:
+        return
+    
+    # Count queries for each sales rep
+    total_queries_for_each_sales_rep = {}
+    for sales_rep in sales_reps:
+        total_queries_for_each_sales_rep[sales_rep.id] = Query.query.filter_by(sales_id=sales_rep.id).count()
+    
+    # Find the sales rep with the least queries
+    least_queried_sales_rep = min(total_queries_for_each_sales_rep, key=total_queries_for_each_sales_rep.get)
+    
+    # Update the query's sales_id
+    query.sales_id = least_queried_sales_rep
+    db.session.commit()
 
 
 # Add this new route to your app.py
