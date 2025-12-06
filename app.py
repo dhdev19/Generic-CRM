@@ -519,6 +519,69 @@ def remove_query(id):
     
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/update-query-sales', methods=['POST'])
+@login_required
+def update_query_sales():
+    if session.get('user_type') != 'admin':
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    
+    try:
+        data = request.json
+        if not data or 'query_id' not in data or 'sales_id' not in data:
+            return jsonify({"status": "error", "message": "Missing required fields: query_id and sales_id"}), 400
+        
+        query_id = int(data['query_id'])
+        new_sales_id = int(data['sales_id'])
+        
+        # Get the query
+        query = Query.query.get_or_404(query_id)
+        
+        # Verify the query belongs to the current admin
+        if query.admin_id != current_user.id:
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+        
+        # Verify the sales person belongs to this admin
+        sales_person = Sales.query.filter_by(id=new_sales_id, admin_id=current_user.id).first()
+        if not sales_person:
+            return jsonify({"status": "error", "message": "Sales person not found or access denied"}), 404
+        
+        # Update sales person if changed
+        if query.sales_id != new_sales_id:
+            query.sales_id = new_sales_id
+            
+            # Update all follow-ups for this query to the new sales person
+            follow_ups = FollowUp.query.filter_by(query_id=query.id).all()
+            for follow_up in follow_ups:
+                follow_up.sales_id = new_sales_id
+            
+            db.session.commit()
+            
+            # Send notification to sales person about query update
+            try:
+                send_new_query_notification_to_sales(query.sales_id, query)
+            except Exception:
+                pass
+            
+            # Get the updated sales person name
+            updated_sales = Sales.query.get(new_sales_id)
+            return jsonify({
+                "status": "success",
+                "message": "Sales person updated successfully",
+                "sales_name": updated_sales.name
+            })
+        else:
+            # No change needed
+            current_sales = Sales.query.get(query.sales_id)
+            return jsonify({
+                "status": "success",
+                "message": "No change needed",
+                "sales_name": current_sales.name
+            })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/admin/bulk-delete-queries', methods=['POST'])
 @login_required
 def bulk_delete_queries():

@@ -138,10 +138,23 @@
                                         {% set c = query.closure or 'pending' %}
                                         <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
                                     </td>
-                                    <td>
-                                        <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
+                                    <td onclick="event.stopPropagation();">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <select class="form-select form-select-sm sales-person-select" 
+                                                    data-query-id="{{ query.id }}" 
+                                                    style="min-width: 150px;"
+                                                    onchange="updateSalesPerson({{ query.id }}, this.value)"
+                                                    onclick="event.stopPropagation();">
+                                                {% for sales in sales_persons %}
+                                                    <option value="{{ sales.id }}" {% if sales.id == query.sales_id %}selected{% endif %}>
+                                                        {{ sales.name }}
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                            <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                        </div>
                                     </td>
                                 </tr>
                                 <tr class="followups-row" data-query-id="{{ query.id }}" style="display: none;">
@@ -351,6 +364,67 @@ function bulkDeleteQueries() {
         alert('An error occurred while deleting queries.');
         bulkDeleteBtn.disabled = false;
         bulkDeleteBtn.innerHTML = originalText;
+    });
+}
+
+function updateSalesPerson(queryId, salesId) {
+    // Get the select element to show loading state
+    var selectElement = document.querySelector('.sales-person-select[data-query-id="' + queryId + '"]');
+    var originalValue = selectElement.getAttribute('data-original-value') || selectElement.value;
+    
+    // Store original value if not already stored
+    if (!selectElement.getAttribute('data-original-value')) {
+        selectElement.setAttribute('data-original-value', originalValue);
+    }
+    
+    // Disable select during update
+    selectElement.disabled = true;
+    
+    // Send POST request to update endpoint
+    fetch('{{ url_for("update_query_sales") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            query_id: queryId,
+            sales_id: parseInt(salesId)
+        })
+    })
+    .then(function(response) {
+        return response.json();
+    })
+    .then(function(data) {
+        if (data.status === 'success') {
+            // Update the sales person name in the table
+            var row = document.querySelector('.query-row[data-query-id="' + queryId + '"]');
+            if (row) {
+                var salesPersonCell = row.querySelector('td:nth-child(2)');
+                if (salesPersonCell) {
+                    salesPersonCell.innerHTML = '<strong>' + data.sales_name + '</strong>';
+                }
+            }
+            
+            // Update the original value
+            selectElement.setAttribute('data-original-value', salesId);
+            
+            // Show success message (optional, can be removed if too intrusive)
+            // You can use a toast notification instead if preferred
+        } else {
+            // Revert to original value on error
+            selectElement.value = originalValue;
+            alert('Error: ' + (data.message || 'Failed to update sales person'));
+        }
+    })
+    .catch(function(error) {
+        console.error('Error:', error);
+        // Revert to original value on error
+        selectElement.value = originalValue;
+        alert('An error occurred while updating sales person.');
+    })
+    .finally(function() {
+        // Re-enable select
+        selectElement.disabled = false;
     });
 }
 </script>
