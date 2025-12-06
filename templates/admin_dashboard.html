@@ -139,13 +139,8 @@
                                         <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
                                     </td>
                                     <td>
-                                        <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm me-1">
+                                        <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm">
                                             <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="{{ url_for('remove_query', id=query.id) }}" 
-                                           class="btn btn-danger btn-sm"
-                                           onclick="return confirm('Are you sure you want to remove this query?')">
-                                            <i class="fas fa-trash"></i>
                                         </a>
                                     </td>
                                 </tr>
