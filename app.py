@@ -1641,9 +1641,10 @@ def send_new_query_notification_to_sales(sales_id: int, q: Query):
 
 def assign_sales_rep_to_query(query_id):
     """
-    Reassigns a query from default sales to the sales rep with the least queries.
-    This function finds all sales reps for the query's admin, excludes the current sales rep,
-    and assigns the query to the one with the fewest queries.
+    Reassigns a query from default sales to the next sales rep in rotation.
+    This function finds all sales reps for the query's admin (excluding admin sales with id=0),
+    determines the last assigned sales rep by checking the most recent query,
+    and assigns the query to the next sales rep in rotation.
     """
     query = Query.query.get(query_id)
     if not query:
@@ -1652,23 +1653,45 @@ def assign_sales_rep_to_query(query_id):
     admin_id = query.admin_id
     current_sales_id = query.sales_id
     
-    # Get all sales reps for this admin, excluding the current one
-    sales_reps = Sales.query.filter_by(admin_id=admin_id).filter(Sales.id != current_sales_id).all()
+    # Get all sales reps for this admin, excluding admin sales (id=0)
+    # We need all sales reps (not excluding current) to determine rotation order
+    all_sales_reps = Sales.query.filter_by(admin_id=admin_id).filter(
+        Sales.id != 0  # Exclude admin sales
+    ).order_by(Sales.id).all()
     
-    # If no other sales reps available, keep the current assignment
-    if not sales_reps:
+    # If no sales reps available, keep the current assignment
+    if not all_sales_reps:
         return
     
-    # Count queries for each sales rep
-    total_queries_for_each_sales_rep = {}
-    for sales_rep in sales_reps:
-        total_queries_for_each_sales_rep[sales_rep.id] = Query.query.filter_by(sales_id=sales_rep.id).count()
+    # Get the most recently created query for this admin (excluding the current query)
+    # to determine which sales rep was last assigned (excluding admin sales)
+    last_query = Query.query.filter(
+        Query.admin_id == admin_id,
+        Query.id != query_id,
+        Query.sales_id != 0  # Exclude admin sales
+    ).order_by(Query.id.desc()).first()
     
-    # Find the sales rep with the least queries
-    least_queried_sales_rep = min(total_queries_for_each_sales_rep, key=total_queries_for_each_sales_rep.get)
+    # Get list of sales rep IDs in rotation order
+    sales_ids = [sr.id for sr in all_sales_reps]
+    
+    # Determine the next sales rep in rotation
+    if last_query and last_query.sales_id in sales_ids:
+        # Find the index of the last assigned sales rep
+        last_sales_id = last_query.sales_id
+        try:
+            last_index = sales_ids.index(last_sales_id)
+            # Get the next sales rep in rotation (wrap around if at the end)
+            next_index = (last_index + 1) % len(sales_ids)
+            next_sales_rep_id = sales_ids[next_index]
+        except ValueError:
+            # Last sales rep not in current list, start from first
+            next_sales_rep_id = sales_ids[0]
+    else:
+        # No previous query or last query was admin sales, start from first sales rep
+        next_sales_rep_id = sales_ids[0]
     
     # Update the query's sales_id
-    query.sales_id = least_queried_sales_rep
+    query.sales_id = next_sales_rep_id
     db.session.commit()
 
 
