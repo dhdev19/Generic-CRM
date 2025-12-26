@@ -1125,35 +1125,23 @@ def api_add_query():
         
         data = request.json
         
-        # Validate required fields including admin credentials
-        required_fields = ["admin_username", "admin_password", "sales_id", "admin_id", "name", "phone_number", "service_query", "mail_id"]
+        # Validate required fields
+        required_fields = ["admin_id", "sales_id", "service_query"]
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"status": "error", "message": f"Missing required field: {field}"}), 400
         
-        # Validate data types
+        # Validate data types for required fields
         try:
-            sales_id = int(data["sales_id"])
             admin_id = int(data["admin_id"])
+            sales_id = int(data["sales_id"])
         except (ValueError, TypeError):
-            return jsonify({"status": "error", "message": "sales_id and admin_id must be integers"}), 400
+            return jsonify({"status": "error", "message": "admin_id and sales_id must be integers"}), 400
         
-        # Verify admin credentials first
-        admin_username = data["admin_username"].strip()
-        admin_password = data["admin_password"]
-        
-        # Find admin by username
-        admin_user = Admin.query.filter_by(username=admin_username).first()
+        # Verify admin exists
+        admin_user = Admin.query.get(admin_id)
         if not admin_user:
-            return jsonify({"status": "error", "message": "Invalid admin credentials"}), 401
-        
-        # Verify admin password
-        if not check_password_hash(admin_user.password_hash, admin_password):
-            return jsonify({"status": "error", "message": "Invalid admin credentials"}), 401
-        
-        # Verify admin_id matches the authenticated admin
-        if admin_user.id != admin_id:
-            return jsonify({"status": "error", "message": "Admin ID mismatch - you can only add queries for your own admin account"}), 403
+            return jsonify({"status": "error", "message": "Admin not found"}), 404
         
         # Verify that sales exists and belongs to this admin
         sales_user = db.session.get(Sales, sales_id)
@@ -1163,21 +1151,30 @@ def api_add_query():
         if sales_user.admin_id != admin_id:
             return jsonify({"status": "error", "message": "Sales user does not belong to specified admin"}), 400
         
+        # Handle optional fields with defaults
+        name = data.get("name", "").strip() if data.get("name") else "N/A"
+        phone_number = data.get("phone_number", "").strip() if data.get("phone_number") else "N/A"
+        mail_id = data.get("mail_id", "").strip() if data.get("mail_id") else "johndoe@example.com"
+        service_query = data["service_query"].strip()
+        source = data.get("source", "reference").strip() if data.get("source") else "reference"
+        closure = data.get("closure", "pending").strip() if data.get("closure") else "pending"
+        
         # Create and save query
         query = Query(
             sales_id=sales_id,
             admin_id=admin_id,
-            name=data["name"].strip(),
-            phone_number=data["phone_number"].strip(),
-            service_query=data["service_query"].strip(),
-            mail_id=data["mail_id"].strip(),
-            source=(data.get("source", "reference").strip()),
-            closure=data.get("closure", "pending").strip()
+            name=name,
+            phone_number=phone_number,
+            service_query=service_query,
+            mail_id=mail_id,
+            source=source,
+            closure=closure
         )
         
         db.session.add(query)
         db.session.commit()
-        # Notify sales devices
+        
+        # Send notification to sales person
         try:
             send_new_query_notification_to_sales(query.sales_id, query)
         except Exception:
