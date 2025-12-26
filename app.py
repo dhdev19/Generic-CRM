@@ -24,6 +24,11 @@ app = Flask(__name__)
 config_name = os.environ.get('FLASK_ENV', 'development')
 app.config.from_object(config[config_name])
 
+# Auto-assignment configuration
+# Set AUTO_ASSIGN=True in environment variable or config to enable automatic sales rep assignment
+# When False, queries are assigned to default sales (id=0)
+AUTO_ASSIGN = os.environ.get('AUTO_ASSIGN', 'false').lower() == 'true'
+
 # Initialize Firebase Admin if JSON path provided
 if firebase_admin is not None:
     fcm_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
@@ -1244,14 +1249,14 @@ def api_website_lead():
         db.session.add(query)
         db.session.commit()
         
-        # Reassign from default sales to actual sales person
-        try:
-            assign_sales_rep_to_query(query.id)
-        except Exception:
-            pass
-        
-        # Refresh query to get updated sales_id after reassignment
-        db.session.refresh(query)
+        # Reassign from default sales to actual sales person (if auto-assignment is enabled)
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                # Refresh query to get updated sales_id after reassignment
+                db.session.refresh(query)
+            except Exception:
+                pass
         
         # Notify sales devices
         try:
@@ -1377,14 +1382,14 @@ def api_form_add():
         db.session.add(query)
         db.session.commit()
         
-        # Reassign from default sales to actual sales person
-        try:
-            assign_sales_rep_to_query(query.id)
-        except Exception:
-            pass
-        
-        # Refresh query to get updated sales_id after reassignment
-        db.session.refresh(query)
+        # Reassign from default sales to actual sales person (if auto-assignment is enabled)
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                # Refresh query to get updated sales_id after reassignment
+                db.session.refresh(query)
+            except Exception:
+                pass
         
         # Send FCM notification to sales person
         try:
