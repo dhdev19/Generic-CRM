@@ -109,9 +109,11 @@
                                     <th style="width: 40px;">
                                         <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
                                     </th>
+                                    <th>Date</th>
                                     <th>Sales Person</th>
-                                    <th>Customer</th>
-                                    <th>Service</th>
+                                    <th>Lead Details</th>
+                                    <th>Service Query</th>
+                                    <th>Source</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -125,14 +127,34 @@
                                         <input type="checkbox" class="query-checkbox" value="{{ query.id }}" onchange="updateBulkDeleteButton()">
                                     </td>
                                     <td>
+                                        <div class="d-flex flex-column">
+                                            <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
+                                            <small class="text-muted">{{ query.date_of_enquiry.strftime('%H:%M') }}</small>
+                                        </div>
+                                    </td>
+                                    <td>
                                         <strong>{{ sales_name }}</strong>
                                     </td>
                                     <td>
-                                        <strong>{{ query.name }}</strong><br>
-                                        <small class="text-muted">{{ query.phone_number }}</small>
+                                        <div class="d-flex flex-column">
+                                            <strong>{{ query.name }}</strong>
+                                            <small class="text-muted">
+                                                <i class="fas fa-phone me-1"></i>
+                                                <a href="tel:{{ query.phone_number }}">{{ query.phone_number }}</a>
+                                            </small>
+                                            <small class="text-muted">
+                                                <i class="fas fa-envelope me-1"></i>
+                                                <a href="mailto:{{ query.mail_id }}">{{ query.mail_id }}</a>
+                                            </small>
+                                        </div>
                                     </td>
                                     <td>
-                                        <small>{{ query.service_query[:50] }}{% if query.service_query|length > 50 %}...{% endif %}</small>
+                                        <div class="text-wrap" style="max-width: 300px;">
+                                            <small>{{ query.service_query[:100] }}{% if query.service_query|length > 100 %}...{% endif %}</small>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ (query.source or 'reference')|title }}</span>
                                     </td>
                                     <td>
                                         {% set c = query.closure or 'pending' %}
@@ -161,7 +183,7 @@
                                     </td>
                                 </tr>
                                 <tr class="followups-row" data-query-id="{{ query.id }}" style="display: none;">
-                                    <td colspan="6">
+                                    <td colspan="8">
                                         {% set followups = followups_by_query.get(query.id) %}
                                         {% if followups %}
                                             <ul class="list-unstyled mb-0">
