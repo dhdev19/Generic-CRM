@@ -72,7 +72,7 @@
                         <table class="table table-hover">
                             <thead>
                                 <tr>
-                                    <th>Date & Time</th>
+                                    <th>Date</th>
                                     <th>Lead Details</th>
                                     <th>Service Query</th>
                                     <th>Source</th>
@@ -84,10 +84,7 @@
                                 {% for query in queries %}
                                 <tr class="align-middle">
                                     <td>
-                                        <div class="d-flex flex-column">
-                                            <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
-                                            <small class="text-muted">{{ query.date_of_enquiry.strftime('%H:%M') }}</small>
-                                        </div>
+                                        <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
                                     </td>
                                     <td>
                                         <div class="d-flex flex-column">

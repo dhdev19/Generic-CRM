@@ -127,10 +127,7 @@
                                         <input type="checkbox" class="query-checkbox" value="{{ query.id }}" onchange="updateBulkDeleteButton()">
                                     </td>
                                     <td>
-                                        <div class="d-flex flex-column">
-                                            <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
-                                            <small class="text-muted">{{ query.date_of_enquiry.strftime('%H:%M') }}</small>
-                                        </div>
+                                        <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
                                     </td>
                                     <td>
                                         <strong>{{ sales_name }}</strong>
