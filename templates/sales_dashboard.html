@@ -84,7 +84,7 @@
                                 {% for query in queries %}
                                 <tr class="align-middle">
                                     <td>
-                                        <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
+                                        <strong>{{ query.date_of_enquiry.strftime('%d-%m-%y') }}</strong>
                                     </td>
                                     <td>
                                         <div class="d-flex flex-column">
@@ -157,7 +157,7 @@
                                                         <tbody>
                                                             {% for fu in fus %}
                                                             <tr>
-                                                                <td><small>{{ fu.date_of_contact.strftime('%Y-%m-%d') }}</small></td>
+                                                                <td><small>{{ fu.date_of_contact.strftime('%d-%m-%y') }}</small></td>
                                                                 <td><small>{{ fu.remark }}</small></td>
                                                             </tr>
                                                             {% endfor %}

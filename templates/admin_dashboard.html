@@ -127,7 +127,7 @@
                                         <input type="checkbox" class="query-checkbox" value="{{ query.id }}" onchange="updateBulkDeleteButton()">
                                     </td>
                                     <td>
-                                        <strong>{{ query.date_of_enquiry.strftime('%Y-%m-%d') }}</strong>
+                                        <strong>{{ query.date_of_enquiry.strftime('%d-%m-%y') }}</strong>
                                     </td>
                                     <td>
                                         <strong>{{ sales_name }}</strong>
@@ -186,7 +186,7 @@
                                             <ul class="list-unstyled mb-0">
                                                 {% for fu in followups %}
                                                     <li class="mb-1">
-                                                        <small class="text-muted">{{ fu.date_of_contact.strftime('%Y-%m-%d %H:%M') }}</small><br>
+                                                        <small class="text-muted">{{ fu.date_of_contact.strftime('%d-%m-%y') }}</small><br>
                                                         {{ fu.remark }}
                                                     </li>
                                                 {% endfor %}
