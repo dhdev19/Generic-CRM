@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 
 {% block title %}Sales Dashboard - CRM System{% endblock %}
-{% block page_title %}Sales Dashboard{% endblock %}
+{% block page_title %}
+    <div class="d-flex justify-content-between align-items-center w-100">
+        <span>Sales Dashboard</span>
+        <button type="button" class="btn btn-lg" id="dailyReportBtn" data-bs-toggle="modal" data-bs-target="#dailyReportModal" style="animation: colorChange 3s infinite;">
+            <i class="fas fa-file-alt me-2"></i>Daily Report
+        </button>
+    </div>
+{% endblock %}
 
 {% block content %}
-
-<!-- Daily Report Button (Top Right) -->
-<div class="d-flex justify-content-end mb-3">
-    <button type="button" class="btn btn-lg" id="dailyReportBtn" data-bs-toggle="modal" data-bs-target="#dailyReportModal" style="animation: colorChange 3s infinite;">
-        <i class="fas fa-file-alt me-2"></i>Add Daily Report Here
-    </button>
-</div>
 
 <style>
     @keyframes colorChange {
