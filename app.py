@@ -2,11 +2,18 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
 from config import config
 import pymysql
-from sqlalchemy import desc, or_ 
+from sqlalchemy import desc, or_
+
+# IST timezone (GMT+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_now():
+    """Get current time in IST (Indian Standard Time, GMT+5:30)"""
+    return datetime.now(IST) 
 # Firebase Admin SDK (optional; initialized if creds provided)
 firebase_admin = None
 try:
@@ -79,7 +86,7 @@ class Query(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sales_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=False)
     admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False)
-    date_of_enquiry = db.Column(db.DateTime, default=datetime.utcnow)
+    date_of_enquiry = db.Column(db.DateTime, default=get_ist_now)
     name = db.Column(db.String(100), nullable=False)
     phone_number = db.Column(db.String(20), nullable=False)
     service_query = db.Column(db.Text, nullable=False)
@@ -95,7 +102,7 @@ class FollowUp(db.Model):
     admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False)
     sales_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=False)
     query_id = db.Column(db.Integer, db.ForeignKey('query.id'), nullable=False)
-    date_of_contact = db.Column(db.DateTime, default=datetime.utcnow)
+    date_of_contact = db.Column(db.DateTime, default=get_ist_now)
     remark = db.Column(db.Text, nullable=False)
 
 # Device token model for mobile push notifications
@@ -106,8 +113,8 @@ class DeviceToken(db.Model):
     platform = db.Column(db.String(50))
     app_version = db.Column(db.String(50))
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=get_ist_now)
+    updated_at = db.Column(db.DateTime, default=get_ist_now, onupdate=get_ist_now)
     last_seen_at = db.Column(db.DateTime)
 
 # Daily Report model
@@ -117,8 +124,8 @@ class DailyReport(db.Model):
     admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False, index=True)
     report_date = db.Column(db.Date, nullable=False, index=True)
     report_text = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=get_ist_now)
+    updated_at = db.Column(db.DateTime, default=get_ist_now, onupdate=get_ist_now)
     __table_args__ = (db.UniqueConstraint('sales_id', 'report_date', name='unique_sales_date'),)
 
 @login_manager.user_loader
@@ -758,7 +765,7 @@ def admin_analytics():
             if selected_year and selected_year.isdigit():
                 year = int(selected_year)
             else:
-                year = datetime.utcnow().year
+                year = get_ist_now().year
             from calendar import monthrange
             start = datetime(year, month, 1)
             last_day = monthrange(year, month)[1]
@@ -832,7 +839,7 @@ def sales_dashboard():
                 year = int(selected_year)
             else:
                 # default to current year if month provided without year
-                year = datetime.utcnow().year
+                year = get_ist_now().year
             from calendar import monthrange
             start = datetime(year, month, 1)
             last_day = monthrange(year, month)[1]
@@ -1019,7 +1026,7 @@ def sales_analytics():
             if selected_year and selected_year.isdigit():
                 year = int(selected_year)
             else:
-                year = datetime.utcnow().year
+                year = get_ist_now().year
             from calendar import monthrange
             start = datetime(year, month, 1)
             last_day = monthrange(year, month)[1]
@@ -1231,7 +1238,7 @@ def api_website_lead():
         admin_id = 3
         sales_id = 0
         source = "website"
-        date_of_enquiry = datetime.utcnow()
+        date_of_enquiry = get_ist_now()
         
         # Verify admin exists
         admin_user = Admin.query.get(admin_id)
@@ -1359,7 +1366,7 @@ def api_form_add():
         # Convert to string first in case it's an integer or other type
         source_input = str(data.get("source", "")).strip() if data.get("source") else ""
         source = normalize_source(source_input)
-        date_of_enquiry = datetime.utcnow()
+        date_of_enquiry = get_ist_now()
         
         # Verify admin exists
         admin_user = Admin.query.get(admin_id)
@@ -1460,7 +1467,7 @@ def _require_json_fields(data, fields):
 #             platform=data.get("platform"),
 #             app_version=data.get("app_version"),
 #             is_active=True,
-#             last_seen_at=datetime.utcnow(),
+#             last_seen_at=get_ist_now(),
 #         )
 #         db.session.add(rec)
 #     db.session.commit()
@@ -1492,7 +1499,7 @@ def api_mobile_login():
         existing.platform = data.get("platform")
         existing.app_version = data.get("app_version")
         existing.is_active = True
-        existing.last_seen_at = datetime.utcnow()
+        existing.last_seen_at = get_ist_now()
     else:
         # Insert new row
         rec = DeviceToken(
@@ -1501,7 +1508,7 @@ def api_mobile_login():
             platform=data.get("platform"),
             app_version=data.get("app_version"),
             is_active=True,
-            last_seen_at=datetime.utcnow(),
+            last_seen_at=get_ist_now(),
         )
         db.session.add(rec)
 
@@ -1865,7 +1872,7 @@ def api_sales_update_daily_report():
         if not report_text:
             return jsonify({"status": "error", "message": "Report text cannot be empty"}), 400
         
-        today = datetime.utcnow().date()
+        today = get_ist_now().date()
         sales_record = db.session.get(Sales, current_user.id)
         if sales_record is None:
             return jsonify({"status": "error", "message": "Sales record not found"}), 404
@@ -1879,7 +1886,7 @@ def api_sales_update_daily_report():
         if daily_report:
             # Update existing report
             daily_report.report_text = report_text
-            daily_report.updated_at = datetime.utcnow()
+            daily_report.updated_at = get_ist_now()
         else:
             # Create new report
             daily_report = DailyReport(
@@ -1916,9 +1923,9 @@ def admin_daily_reports():
             try:
                 selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
             except ValueError:
-                selected_date = datetime.utcnow().date()
+                selected_date = get_ist_now().date()
         else:
-            selected_date = datetime.utcnow().date()
+            selected_date = get_ist_now().date()
         
         # Get all sales persons under this admin
         sales_people = Sales.query.filter_by(admin_id=current_user.id).all()
