@@ -1909,50 +1909,67 @@ def admin_daily_reports():
         flash('Access denied')
         return redirect(url_for('index'))
     
-    # Get selected date from query parameter, default to today
-    selected_date_str = request.args.get('date', '')
-    if selected_date_str:
-        try:
-            selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
-        except ValueError:
+    try:
+        # Get selected date from query parameter, default to today
+        selected_date_str = request.args.get('date', '')
+        if selected_date_str:
+            try:
+                selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                selected_date = datetime.utcnow().date()
+        else:
             selected_date = datetime.utcnow().date()
-    else:
-        selected_date = datetime.utcnow().date()
-    
-    # Get all sales persons under this admin
-    sales_people = Sales.query.filter_by(admin_id=current_user.id).all()
-    sales_ids = [s.id for s in sales_people]
-    
-    # Get daily reports for selected date
-    daily_reports = DailyReport.query.filter(
-        DailyReport.admin_id == current_user.id,
-        DailyReport.report_date == selected_date
-    ).all()
-    
-    # Create a dictionary mapping sales_id to report
-    reports_by_sales = {dr.sales_id: dr for dr in daily_reports}
-    
-    return render_template(
-        'admin_daily_reports.html',
-        sales_people=sales_people,
-        reports_by_sales=reports_by_sales,
-        selected_date=selected_date,
-        selected_date_str=selected_date.strftime('%Y-%m-%d')
-    )
+        
+        # Get all sales persons under this admin
+        sales_people = Sales.query.filter_by(admin_id=current_user.id).all()
+        
+        # Get daily reports for selected date (handle case where table doesn't exist)
+        reports_by_sales = {}
+        try:
+            daily_reports = DailyReport.query.filter(
+                DailyReport.admin_id == current_user.id,
+                DailyReport.report_date == selected_date
+            ).all()
+            # Create a dictionary mapping sales_id to report
+            reports_by_sales = {dr.sales_id: dr for dr in daily_reports}
+        except Exception as e:
+            # Table might not exist yet, return empty dict
+            print(f"Warning: Could not query DailyReport table: {e}")
+            reports_by_sales = {}
+        
+        return render_template(
+            'admin_daily_reports.html',
+            sales_people=sales_people,
+            reports_by_sales=reports_by_sales,
+            selected_date=selected_date,
+            selected_date_str=selected_date.strftime('%Y-%m-%d')
+        )
+    except Exception as e:
+        flash(f'Error loading daily reports: {str(e)}')
+        return redirect(url_for('admin_dashboard'))
+
+def init_db():
+    """Initialize database - create all tables if they don't exist"""
+    with app.app_context():
+        try:
+            db.create_all()
+            print("Database tables created/verified successfully")
+            
+            # Create default super admin if none exists
+            if not SuperAdmin.query.first():
+                default_super_admin = SuperAdmin(
+                    name='Default Super Admin',
+                    username='superadmin',
+                    password_hash=generate_password_hash('admin123')
+                )
+                db.session.add(default_super_admin)
+                db.session.commit()
+                print("Default super admin created: username='superadmin', password='admin123'")
+        except Exception as e:
+            print(f"Warning: Could not initialize database: {e}")
+
+# Initialize database on app startup
+init_db()
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        
-        # Create default super admin if none exists
-        if not SuperAdmin.query.first():
-            default_super_admin = SuperAdmin(
-                name='Default Super Admin',
-                username='superadmin',
-                password_hash=generate_password_hash('admin123')
-            )
-            db.session.add(default_super_admin)
-            db.session.commit()
-            print("Default super admin created: username='superadmin', password='admin123'")
-    
     app.run(host='0.0.0.0', port=5000, debug=os.getenv('FLASK_ENV', False))
