@@ -110,6 +110,17 @@ class DeviceToken(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_seen_at = db.Column(db.DateTime)
 
+# Daily Report model
+class DailyReport(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sales_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=False, index=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False, index=True)
+    report_date = db.Column(db.Date, nullable=False, index=True)
+    report_text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('sales_id', 'report_date', name='unique_sales_date'),)
+
 @login_manager.user_loader
 def load_user(user_id):
     # Prefer the model based on the recorded session user_type to avoid id collisions
@@ -1795,6 +1806,139 @@ def api_notify_test_token():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
+# Daily Report Routes
+
+@app.route('/api/sales/daily-report/view', methods=['POST'])
+@login_required
+def api_sales_view_daily_report():
+    """API endpoint for sales to view their daily report for a specific date"""
+    if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    
+    try:
+        data = request.json
+        if not data or 'report_date' not in data:
+            return jsonify({"status": "error", "message": "Missing report_date"}), 400
+        
+        report_date_str = data['report_date']
+        report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
+        
+        daily_report = DailyReport.query.filter_by(
+            sales_id=current_user.id,
+            report_date=report_date
+        ).first()
+        
+        if daily_report:
+            return jsonify({
+                "status": "success",
+                "report": daily_report.report_text,
+                "report_date": daily_report.report_date.strftime('%d-%m-%y'),
+                "updated_at": daily_report.updated_at.strftime('%d-%m-%y %H:%M')
+            })
+        else:
+            return jsonify({
+                "status": "success",
+                "report": "",
+                "report_date": report_date.strftime('%d-%m-%y'),
+                "message": "No report found for this date"
+            })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/sales/daily-report/update', methods=['POST'])
+@login_required
+def api_sales_update_daily_report():
+    """API endpoint for sales to add/update today's daily report"""
+    if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    
+    try:
+        data = request.json
+        if not data or 'report_text' not in data:
+            return jsonify({"status": "error", "message": "Missing report_text"}), 400
+        
+        report_text = data['report_text'].strip()
+        if len(report_text) > 1000:
+            return jsonify({"status": "error", "message": "Report text exceeds 1000 characters"}), 400
+        
+        if not report_text:
+            return jsonify({"status": "error", "message": "Report text cannot be empty"}), 400
+        
+        today = datetime.utcnow().date()
+        sales_record = db.session.get(Sales, current_user.id)
+        if sales_record is None:
+            return jsonify({"status": "error", "message": "Sales record not found"}), 404
+        
+        # Check if report exists for today
+        daily_report = DailyReport.query.filter_by(
+            sales_id=current_user.id,
+            report_date=today
+        ).first()
+        
+        if daily_report:
+            # Update existing report
+            daily_report.report_text = report_text
+            daily_report.updated_at = datetime.utcnow()
+        else:
+            # Create new report
+            daily_report = DailyReport(
+                sales_id=current_user.id,
+                admin_id=sales_record.admin_id,
+                report_date=today,
+                report_text=report_text
+            )
+            db.session.add(daily_report)
+        
+        db.session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Daily report updated successfully",
+            "report_date": today.strftime('%d-%m-%y')
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/admin/daily-reports')
+@login_required
+def admin_daily_reports():
+    """Admin view to see daily reports of all sales persons"""
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+    
+    # Get selected date from query parameter, default to today
+    selected_date_str = request.args.get('date', '')
+    if selected_date_str:
+        try:
+            selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            selected_date = datetime.utcnow().date()
+    else:
+        selected_date = datetime.utcnow().date()
+    
+    # Get all sales persons under this admin
+    sales_people = Sales.query.filter_by(admin_id=current_user.id).all()
+    sales_ids = [s.id for s in sales_people]
+    
+    # Get daily reports for selected date
+    daily_reports = DailyReport.query.filter(
+        DailyReport.admin_id == current_user.id,
+        DailyReport.report_date == selected_date
+    ).all()
+    
+    # Create a dictionary mapping sales_id to report
+    reports_by_sales = {dr.sales_id: dr for dr in daily_reports}
+    
+    return render_template(
+        'admin_daily_reports.html',
+        sales_people=sales_people,
+        reports_by_sales=reports_by_sales,
+        selected_date=selected_date,
+        selected_date_str=selected_date.strftime('%Y-%m-%d')
+    )
 
 if __name__ == '__main__':
     with app.app_context():

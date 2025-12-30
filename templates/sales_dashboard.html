@@ -5,6 +5,232 @@
 
 {% block content %}
 
+<!-- Daily Report Button (Top Right) -->
+<div class="d-flex justify-content-end mb-3">
+    <button type="button" class="btn btn-lg" id="dailyReportBtn" data-bs-toggle="modal" data-bs-target="#dailyReportModal" style="animation: colorChange 3s infinite;">
+        <i class="fas fa-file-alt me-2"></i>Add Daily Report Here
+    </button>
+</div>
+
+<style>
+    @keyframes colorChange {
+        0% { background-color: #dc3545; color: white; }
+        33% { background-color: #0d6efd; color: white; }
+        66% { background-color: #198754; color: white; }
+        100% { background-color: #dc3545; color: white; }
+    }
+    #dailyReportBtn {
+        border-radius: 8px;
+        font-weight: bold;
+        padding: 12px 24px;
+    }
+</style>
+
+<!-- Daily Report Modal -->
+<div class="modal fade" id="dailyReportModal" tabindex="-1" aria-labelledby="dailyReportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dailyReportModalLabel">
+                    <i class="fas fa-file-alt me-2"></i>Daily Report
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Section 1: View Daily Report -->
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0"><i class="fas fa-eye me-2"></i>View Daily Report</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="viewReportDate" class="form-label">Select Date:</label>
+                                <input type="date" class="form-control" id="viewReportDate">
+                            </div>
+                            <div class="col-md-6 d-flex align-items-end">
+                                <button type="button" class="btn btn-primary" onclick="viewDailyReport()">
+                                    <i class="fas fa-search me-1"></i>View
+                                </button>
+                            </div>
+                        </div>
+                        <div id="viewReportResult" class="mt-3">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>Select a date and click View to see your daily report.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Today's Report -->
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h6 class="mb-0"><i class="fas fa-edit me-2"></i>Today's Report</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="todayReportText" class="form-label">Add Report Here:</label>
+                            <textarea class="form-control" id="todayReportText" rows="8" maxlength="1000" placeholder="Enter your daily report here (max 1000 characters)"></textarea>
+                            <div class="form-text">
+                                <span id="charCount">0</span>/1000 characters
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-success" onclick="updateTodayReport()">
+                            <i class="fas fa-save me-1"></i>Update
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Character counter for textarea
+document.getElementById('todayReportText').addEventListener('input', function() {
+    const charCount = this.value.length;
+    document.getElementById('charCount').textContent = charCount;
+    if (charCount > 1000) {
+        document.getElementById('charCount').classList.add('text-danger');
+    } else {
+        document.getElementById('charCount').classList.remove('text-danger');
+    }
+});
+
+// Load today's report when modal opens
+document.getElementById('dailyReportModal').addEventListener('show.bs.modal', function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('viewReportDate').value = today;
+    loadTodayReport();
+});
+
+// Set today's date as default when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('viewReportDate').value = today;
+});
+
+function loadTodayReport() {
+    const today = new Date().toISOString().split('T')[0];
+    fetch('{{ url_for("api_sales_view_daily_report") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ report_date: today })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.getElementById('todayReportText').value = data.report || '';
+            const charCount = (data.report || '').length;
+            document.getElementById('charCount').textContent = charCount;
+        }
+    })
+    .catch(error => {
+        console.error('Error loading today\'s report:', error);
+    });
+}
+
+function viewDailyReport() {
+    const reportDate = document.getElementById('viewReportDate').value;
+    const resultDiv = document.getElementById('viewReportResult');
+    
+    if (!reportDate) {
+        resultDiv.innerHTML = '<div class="alert alert-warning">Please select a date.</div>';
+        return;
+    }
+    
+    resultDiv.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin fa-2x"></i><p>Loading...</p></div>';
+    
+    fetch('{{ url_for("api_sales_view_daily_report") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ report_date: reportDate })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            if (data.report) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <h6><i class="fas fa-calendar me-2"></i>Report for ${data.report_date}</h6>
+                        <p class="mb-0">${data.report.replace(/\n/g, '<br>')}</p>
+                        <small class="text-muted mt-2 d-block">Last updated: ${data.updated_at}</small>
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>No report found for ${data.report_date}
+                    </div>
+                `;
+            }
+        } else {
+            resultDiv.innerHTML = `<div class="alert alert-danger">Error: ${data.message}</div>`;
+        }
+    })
+    .catch(error => {
+        resultDiv.innerHTML = '<div class="alert alert-danger">An error occurred while loading the report.</div>';
+        console.error('Error:', error);
+    });
+}
+
+function updateTodayReport() {
+    const reportText = document.getElementById('todayReportText').value.trim();
+    
+    if (!reportText) {
+        alert('Please enter a report before updating.');
+        return;
+    }
+    
+    if (reportText.length > 1000) {
+        alert('Report text exceeds 1000 characters.');
+        return;
+    }
+    
+    const updateBtn = event.target;
+    const originalText = updateBtn.innerHTML;
+    updateBtn.disabled = true;
+    updateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Updating...';
+    
+    fetch('{{ url_for("api_sales_update_daily_report") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ report_text: reportText })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Daily report updated successfully!');
+            // Refresh the view report section if viewing today's date
+            const viewDate = document.getElementById('viewReportDate').value;
+            const today = new Date().toISOString().split('T')[0];
+            if (viewDate === today) {
+                viewDailyReport();
+            }
+        } else {
+            alert('Error: ' + (data.message || 'Failed to update report'));
+        }
+    })
+    .catch(error => {
+        alert('An error occurred while updating the report.');
+        console.error('Error:', error);
+    })
+    .finally(() => {
+        updateBtn.disabled = false;
+        updateBtn.innerHTML = originalText;
+    });
+}
+</script>
+
 <div class="row">
     <div class="col-12">
         <div class="card">
