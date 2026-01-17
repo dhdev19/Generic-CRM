@@ -831,11 +831,27 @@ def sales_dashboard():
     selected_year = request.args.get('year')
     selected_month = request.args.get('month')  # 1-12
     selected_source = request.args.get('source')
+    selected_closure = request.args.get('closure')
 
     # Distinct years and sources for filter controls
     all_queries = base_query.all()
     available_years = sorted({q.date_of_enquiry.year for q in all_queries})
     available_sources = sorted({(q.source or '').strip() for q in all_queries if (q.source or '').strip()})
+    
+    # Closure options
+    closure_options = [
+        'Closed',
+        'Prospect',
+        'Positive',
+        'pending',
+        'call again',
+        'bad mei bataenge',
+        'not intrested',
+        'wrong enquiry',
+        'invalid',
+        'switch off',
+        'not picked',
+    ]
 
     # Apply filters
     filtered = base_query
@@ -860,6 +876,8 @@ def sales_dashboard():
             filtered = filtered.filter(Query.date_of_enquiry >= start, Query.date_of_enquiry <= end)
         if selected_source:
             filtered = filtered.filter(Query.source == selected_source)
+        if selected_closure:
+            filtered = filtered.filter(Query.closure == selected_closure)
     except Exception:
         pass
 
@@ -943,10 +961,12 @@ def sales_dashboard():
         filters={
             'year': selected_year or '',
             'month': selected_month or '',
-            'source': selected_source or ''
+            'source': selected_source or '',
+            'closure': selected_closure or ''
         },
         available_years=available_years,
         available_sources=available_sources,
+        closure_options=closure_options,
         page=page,
         total_pages=total_pages,
     )

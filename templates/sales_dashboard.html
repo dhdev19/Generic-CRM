@@ -292,6 +292,45 @@ function updateTodayReport() {
                 </div>
             </div>
             <div class="card-body">
+                <!-- Filters -->
+                <form method="GET" action="{{ url_for('sales_dashboard') }}" class="mb-3">
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <label for="sourceFilter" class="form-label small">Source</label>
+                            <select class="form-select form-select-sm" id="sourceFilter" name="source" onchange="this.form.submit()">
+                                <option value="">All Sources</option>
+                                {% for s in available_sources %}
+                                <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="closureFilter" class="form-label small">Closure</label>
+                            <select class="form-select form-select-sm" id="closureFilter" name="closure" onchange="this.form.submit()">
+                                <option value="">All Closures</option>
+                                {% for c in closure_options %}
+                                <option value="{{ c }}" {% if filters.closure == c %}selected{% endif %}>{{ c|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            {% if filters.source or filters.closure %}
+                            <a href="{{ url_for('sales_dashboard') }}" class="btn btn-secondary btn-sm">
+                                <i class="fas fa-times me-1"></i>Clear Filters
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </form>
+                
+                {% if filters.source or filters.closure %}
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-filter me-2"></i>Filters applied:
+                    {% if filters.source %}<span class="badge bg-primary me-1">Source: {{ filters.source|title }}</span>{% endif %}
+                    {% if filters.closure %}<span class="badge bg-primary me-1">Closure: {{ filters.closure|title }}</span>{% endif %}
+                </div>
+                {% endif %}
+                
                 {% if queries %}
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -405,19 +444,19 @@ function updateTodayReport() {
                         <ul class="pagination justify-content-center">
                             <li class="page-item {% if page <= 1 %}disabled{% endif %}">
                                 {% if page > 1 %}
-                                    <a class="page-link" href="{{ url_for('sales_dashboard', page=page-1, year=filters.year or None, month=filters.month or None, source=filters.source or None) }}">Previous</a>
+                                    <a class="page-link" href="{{ url_for('sales_dashboard', page=page-1, year=filters.year or None, month=filters.month or None, source=filters.source or None, closure=filters.closure or None) }}">Previous</a>
                                 {% else %}
                                     <span class="page-link">Previous</span>
                                 {% endif %}
                             </li>
                             {% for p in range(1, total_pages + 1) %}
                                 <li class="page-item {% if p == page %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('sales_dashboard', page=p, year=filters.year or None, month=filters.month or None, source=filters.source or None) }}">{{ p }}</a>
+                                    <a class="page-link" href="{{ url_for('sales_dashboard', page=p, year=filters.year or None, month=filters.month or None, source=filters.source or None, closure=filters.closure or None) }}">{{ p }}</a>
                                 </li>
                             {% endfor %}
                             <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
                                 {% if page < total_pages %}
-                                    <a class="page-link" href="{{ url_for('sales_dashboard', page=page+1, year=filters.year or None, month=filters.month or None, source=filters.source or None) }}">Next</a>
+                                    <a class="page-link" href="{{ url_for('sales_dashboard', page=page+1, year=filters.year or None, month=filters.month or None, source=filters.source or None, closure=filters.closure or None) }}">Next</a>
                                 {% else %}
                                     <span class="page-link">Next</span>
                                 {% endif %}
