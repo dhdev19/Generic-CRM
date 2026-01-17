@@ -96,6 +96,7 @@ class Query(db.Model):
     # Closures: Closed, Prospect, Positive, pending, call again, bad mei bataenge,
     # not intrested, wrong enquiry, invalid, switch off, not picked
     closure = db.Column(db.String(30), default='pending')
+    updated_at = db.Column(db.DateTime, default=get_ist_now, onupdate=get_ist_now)
 
 class FollowUp(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -510,6 +511,7 @@ def edit_query(id):
             sales_person = Sales.query.filter_by(id=new_sales_id, admin_id=current_user.id).first()
             if sales_person and query.sales_id != new_sales_id:
                 query.sales_id = new_sales_id
+                query.updated_at = get_ist_now()  # Update timestamp when reassigned
                 
                 # Update all follow-ups for this query to the new sales person
                 follow_ups = FollowUp.query.filter_by(query_id=query.id).all()
@@ -584,6 +586,7 @@ def update_query_sales():
         # Update sales person if changed
         if query.sales_id != new_sales_id:
             query.sales_id = new_sales_id
+            query.updated_at = get_ist_now()  # Update timestamp when reassigned
             
             # Update all follow-ups for this query to the new sales person
             follow_ups = FollowUp.query.filter_by(query_id=query.id).all()
@@ -889,8 +892,8 @@ def sales_dashboard():
     total_queries = filtered.count()
     total_pages = (total_queries + per_page - 1) // per_page if total_queries > 0 else 1
 
-    # Paginated queries for current page, newest first
-    queries = filtered.order_by(Query.id.desc()).limit(per_page).offset((page - 1) * per_page).all()
+    # Paginated queries for current page, newest first (by updated_at, then id)
+    queries = filtered.order_by(Query.updated_at.desc(), Query.id.desc()).limit(per_page).offset((page - 1) * per_page).all()
 
     # All queries for overview statistics (not paginated, but still filtered)
     queries_list = filtered.all()
