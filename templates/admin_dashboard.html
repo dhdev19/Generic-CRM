@@ -98,134 +98,140 @@
                 
                 {% if search_query %}
                 <div class="alert alert-info mb-3">
-                    <i class="fas fa-info-circle me-2"></i>Showing results for: <strong>"{{ search_query }}"</strong> ({{ total_queries }} result{{ 's' if total_queries != 1 else '' }})
+                    <i class="fas fa-info-circle me-2"></i>Showing results for: <strong>"{{ search_query }}"</strong>
                 </div>
                 {% endif %}
-                {% if queries %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th style="width: 40px;">
-                                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
-                                    </th>
-                                    <th>Date</th>
-                                    <th>Sales Person</th>
-                                    <th>Lead Details</th>
-                                    <th>Service Query</th>
-                                    <th>Source</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for query_tuple in queries %}
-                                    {% set query = query_tuple[0] %}
-                                    {% set sales_name = query_tuple[1] %}
-                                <tr class="query-row" data-query-id="{{ query.id }}" style="cursor: pointer;">
-                                    <td onclick="event.stopPropagation();">
-                                        <input type="checkbox" class="query-checkbox" value="{{ query.id }}" onchange="updateBulkDeleteButton()">
-                                    </td>
-                                    <td>
-                                        <strong>{{ query.date_of_enquiry.strftime('%d-%m-%y') }}</strong>
-                                    </td>
-                                    <td>
-                                        <strong>{{ sales_name }}</strong>
-                                    </td>
-                                    <td>
-                                        <div class="d-flex flex-column">
-                                            <strong>{{ query.name }}</strong>
-                                            <small class="text-muted">
-                                                <i class="fas fa-phone me-1"></i>
-                                                <a href="tel:{{ query.phone_number }}">{{ query.phone_number }}</a>
-                                            </small>
-                                            <small class="text-muted">
-                                                <i class="fas fa-envelope me-1"></i>
-                                                <a href="mailto:{{ query.mail_id }}">{{ query.mail_id }}</a>
-                                            </small>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="text-wrap" style="max-width: 300px;">
-                                            <small>{{ query.service_query[:100] }}{% if query.service_query|length > 100 %}...{% endif %}</small>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-info">{{ (query.source or 'reference')|title }}</span>
-                                    </td>
-                                    <td>
-                                        {% set c = query.closure or 'pending' %}
-                                        <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
-                                    </td>
-                                    <td onclick="event.stopPropagation();">
-                                        <div class="d-flex align-items-center gap-2">
-                                            <select class="form-select form-select-sm sales-person-select" 
-                                                    data-query-id="{{ query.id }}" 
-                                                    style="min-width: 150px;"
-                                                    onchange="updateSalesPerson({{ query.id }}, this.value)"
-                                                    onclick="event.stopPropagation();">
-                                                {% for sales in sales_persons %}
-                                                    <option value="{{ sales.id }}" {% if sales.id == query.sales_id %}selected{% endif %}>
-                                                        {{ sales.name }}
-                                                    </option>
-                                                {% endfor %}
-                                            </select>
-                                            <a href="{{ url_for('admin_add_followup', query_id=query.id) }}" class="btn btn-info btn-sm" title="Add Follow Up">
-                                                <i class="fas fa-comments"></i>
-                                            </a>
-                                            <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr class="followups-row" data-query-id="{{ query.id }}" style="display: none;">
-                                    <td colspan="8">
-                                        {% set followups = followups_by_query.get(query.id) %}
-                                        {% if followups %}
-                                            <ul class="list-unstyled mb-0">
-                                                {% for fu in followups %}
-                                                    <li class="mb-1">
-                                                        <small class="text-muted">{{ fu.date_of_contact.strftime('%d-%m-%y') }}</small><br>
-                                                        {{ fu.remark }}
-                                                    </li>
-                                                {% endfor %}
-                                            </ul>
-                                        {% else %}
-                                            <em>No follow ups yet.</em>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                
+                {% if queries_by_month %}
+                    <div id="selectAllContainer" class="mb-3" style="display: none;">
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                        <label for="selectAll" class="ms-2">Select All</label>
                     </div>
-
-                    {% if total_pages > 1 %}
-                    <nav aria-label="Queries pagination">
-                        <ul class="pagination justify-content-center">
-                            <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-                                {% if page > 1 %}
-                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=page-1, search=search_query if search_query else None) }}">Previous</a>
-                                {% else %}
-                                    <span class="page-link">Previous</span>
-                                {% endif %}
-                            </li>
-                            {% for p in range(1, total_pages + 1) %}
-                                <li class="page-item {% if p == page %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=p, search=search_query if search_query else None) }}">{{ p }}</a>
-                                </li>
-                            {% endfor %}
-                            <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-                                {% if page < total_pages %}
-                                    <a class="page-link" href="{{ url_for('admin_dashboard', page=page+1, search=search_query if search_query else None) }}">Next</a>
-                                {% else %}
-                                    <span class="page-link">Next</span>
-                                {% endif %}
-                            </li>
-                        </ul>
-                    </nav>
-                    {% endif %}
+                    
+                    {% for month_key in month_keys %}
+                        {% set year, month = month_key %}
+                        {% set month_queries = queries_by_month[month_key] %}
+                        {% set is_current_month = (month_key == current_month_year) %}
+                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                        {% set month_name = month_names[month] %}
+                        {% set month_id = 'month_' ~ year ~ '_' ~ month %}
+                        
+                        <div class="card mb-3">
+                            <div class="card-header" style="cursor: pointer; background-color: {% if is_current_month %}#e7f3ff{% else %}#f8f9fa{% endif %};" 
+                                 onclick="toggleMonth('{{ month_id }}')">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-chevron-{% if is_current_month %}down{% else %}right{% endif %} me-2" id="icon_{{ month_id }}"></i>
+                                        <strong>{{ month_name }} {{ year }}</strong>
+                                        <span class="badge bg-primary ms-2">{{ month_queries|length }} quer{{ 'y' if month_queries|length == 1 else 'ies' }}</span>
+                                        {% if is_current_month %}
+                                        <span class="badge bg-success ms-2">Current</span>
+                                        {% endif %}
+                                    </h6>
+                                </div>
+                            </div>
+                            <div class="card-body" id="{{ month_id }}" style="display: {% if is_current_month %}block{% else %}none{% endif %};">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 40px;">
+                                                    <input type="checkbox" class="month-select-all" data-month="{{ month_id }}" onchange="toggleMonthSelectAll('{{ month_id }}')">
+                                                </th>
+                                                <th>Date</th>
+                                                <th>Sales Person</th>
+                                                <th>Lead Details</th>
+                                                <th>Service Query</th>
+                                                <th>Source</th>
+                                                <th>Status</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for query_tuple in month_queries %}
+                                                {% set query = query_tuple[0] %}
+                                                {% set sales_name = query_tuple[1] %}
+                                            <tr class="query-row" data-query-id="{{ query.id }}" style="cursor: pointer;">
+                                                <td onclick="event.stopPropagation();">
+                                                    <input type="checkbox" class="query-checkbox" value="{{ query.id }}" data-month="{{ month_id }}" onchange="handleCheckboxChange(this)">
+                                                </td>
+                                                <td>
+                                                    <strong>{{ query.date_of_enquiry.strftime('%d-%m-%y') }}</strong>
+                                                </td>
+                                                <td>
+                                                    <strong>{{ sales_name }}</strong>
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex flex-column">
+                                                        <strong>{{ query.name }}</strong>
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-phone me-1"></i>
+                                                            <a href="tel:{{ query.phone_number }}">{{ query.phone_number }}</a>
+                                                        </small>
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-envelope me-1"></i>
+                                                            <a href="mailto:{{ query.mail_id }}">{{ query.mail_id }}</a>
+                                                        </small>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="text-wrap" style="max-width: 300px;">
+                                                        <small>{{ query.service_query[:100] }}{% if query.service_query|length > 100 %}...{% endif %}</small>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-info">{{ (query.source or 'reference')|title }}</span>
+                                                </td>
+                                                <td>
+                                                    {% set c = query.closure or 'pending' %}
+                                                    <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
+                                                </td>
+                                                <td onclick="event.stopPropagation();">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <select class="form-select form-select-sm sales-person-select" 
+                                                                data-query-id="{{ query.id }}" 
+                                                                style="min-width: 150px;"
+                                                                onchange="updateSalesPerson({{ query.id }}, this.value)"
+                                                                onclick="event.stopPropagation();">
+                                                            {% for sales in sales_persons %}
+                                                                <option value="{{ sales.id }}" {% if sales.id == query.sales_id %}selected{% endif %}>
+                                                                    {{ sales.name }}
+                                                                </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                        <a href="{{ url_for('admin_add_followup', query_id=query.id) }}" class="btn btn-info btn-sm" title="Add Follow Up">
+                                                            <i class="fas fa-comments"></i>
+                                                        </a>
+                                                        <a href="{{ url_for('edit_query', id=query.id) }}" class="btn btn-primary btn-sm">
+                                                            <i class="fas fa-edit"></i>
+                                                        </a>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <tr class="followups-row" data-query-id="{{ query.id }}" style="display: none;">
+                                                <td colspan="8">
+                                                    {% set followups = followups_by_query.get(query.id) %}
+                                                    {% if followups %}
+                                                        <ul class="list-unstyled mb-0">
+                                                            {% for fu in followups %}
+                                                                <li class="mb-1">
+                                                                    <small class="text-muted">{{ fu.date_of_contact.strftime('%d-%m-%y') }}</small><br>
+                                                                    {{ fu.remark }}
+                                                                </li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    {% else %}
+                                                        <em>No follow ups yet.</em>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
                 {% else %}
                     {% if search_query %}
                         <p class="text-muted text-center">No queries found matching "{{ search_query }}".</p>
@@ -304,6 +310,20 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+function toggleMonth(monthId) {
+    var monthDiv = document.getElementById(monthId);
+    var icon = document.getElementById('icon_' + monthId);
+    if (monthDiv.style.display === 'none' || monthDiv.style.display === '') {
+        monthDiv.style.display = 'block';
+        icon.classList.remove('fa-chevron-right');
+        icon.classList.add('fa-chevron-down');
+    } else {
+        monthDiv.style.display = 'none';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-right');
+    }
+}
+
 function toggleSelectAll() {
     var selectAll = document.getElementById('selectAll');
     var checkboxes = document.querySelectorAll('.query-checkbox');
@@ -313,16 +333,65 @@ function toggleSelectAll() {
     updateBulkDeleteButton();
 }
 
+function toggleMonthSelectAll(monthId) {
+    var monthSelectAll = document.querySelector('.month-select-all[data-month="' + monthId + '"]');
+    var monthDiv = document.getElementById(monthId);
+    var checkboxes = monthDiv.querySelectorAll('.query-checkbox');
+    checkboxes.forEach(function(checkbox) {
+        checkbox.checked = monthSelectAll.checked;
+    });
+    updateBulkDeleteButton();
+    updateSelectAllCheckbox();
+}
+
+function handleCheckboxChange(checkbox) {
+    updateBulkDeleteButton();
+    updateSelectAllCheckbox();
+    // Update month select-all checkbox
+    var monthId = checkbox.getAttribute('data-month');
+    if (monthId) {
+        var monthDiv = document.getElementById(monthId);
+        if (monthDiv) {
+            var monthCheckboxes = monthDiv.querySelectorAll('.query-checkbox');
+            var checkedMonthCheckboxes = monthDiv.querySelectorAll('.query-checkbox:checked');
+            var monthSelectAll = document.querySelector('.month-select-all[data-month="' + monthId + '"]');
+            if (monthSelectAll) {
+                monthSelectAll.checked = (monthCheckboxes.length > 0 && checkedMonthCheckboxes.length === monthCheckboxes.length);
+            }
+        }
+    }
+}
+
+function updateSelectAllCheckbox() {
+    var allCheckboxes = document.querySelectorAll('.query-checkbox');
+    var checkedCheckboxes = document.querySelectorAll('.query-checkbox:checked');
+    var selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.checked = (allCheckboxes.length > 0 && checkedCheckboxes.length === allCheckboxes.length);
+    }
+}
+
 function updateBulkDeleteButton() {
     var checkboxes = document.querySelectorAll('.query-checkbox:checked');
     var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    var selectAllContainer = document.getElementById('selectAllContainer');
     if (checkboxes.length > 0) {
         bulkDeleteBtn.style.display = 'inline-block';
         bulkDeleteBtn.textContent = 'Delete Selected (' + checkboxes.length + ')';
+        if (selectAllContainer) {
+            selectAllContainer.style.display = 'block';
+        }
     } else {
         bulkDeleteBtn.style.display = 'none';
-        document.getElementById('selectAll').checked = false;
+        if (selectAllContainer) {
+            selectAllContainer.style.display = 'none';
+        }
+        var selectAll = document.getElementById('selectAll');
+        if (selectAll) {
+            selectAll.checked = false;
+        }
     }
+    updateSelectAllCheckbox();
 }
 
 function bulkDeleteQueries() {
@@ -366,8 +435,15 @@ function bulkDeleteQueries() {
                 if (followupRow) followupRow.remove();
             });
             
-            // Reset select all checkbox
-            document.getElementById('selectAll').checked = false;
+            // Reset select all checkboxes
+            var selectAll = document.getElementById('selectAll');
+            if (selectAll) {
+                selectAll.checked = false;
+            }
+            var monthSelectAlls = document.querySelectorAll('.month-select-all');
+            monthSelectAlls.forEach(function(cb) {
+                cb.checked = false;
+            });
             updateBulkDeleteButton();
             
             // Show success message

@@ -315,10 +315,6 @@ def admin_dashboard():
         return redirect(url_for('index'))
     
     sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
-
-    # Pagination setup
-    per_page = 25
-    page = request.args.get('page', 1, type=int)
     
     # Search parameter
     search_query = request.args.get('search', '').strip()
@@ -338,32 +334,49 @@ def admin_dashboard():
         )
         base_query = base_query.filter(search_filter)
 
-    # Total count for pagination
-    total_queries = base_query.count()
-    total_pages = (total_queries + per_page - 1) // per_page if total_queries > 0 else 1
+    # Get all queries (no pagination when grouping by month)
+    all_queries = base_query.order_by(Query.date_of_enquiry.desc(), Query.id.desc()).all()
 
-    # Paginated queries for current page, newest first
-    queries = base_query.order_by(Query.id.desc()).limit(per_page).offset((page - 1) * per_page).all()
-
+    # Group queries by month and year
+    from collections import defaultdict
+    queries_by_month = defaultdict(list)
+    current_month_year = None
+    
+    for query_tuple in all_queries:
+        query = query_tuple[0]
+        month_year = (query.date_of_enquiry.year, query.date_of_enquiry.month)
+        queries_by_month[month_year].append(query_tuple)
+        
+        # Track current month/year
+        if current_month_year is None:
+            current_month_year = month_year
+    
+    # Get current month/year in IST
+    ist_now = get_ist_now()
+    current_month_year = (ist_now.year, ist_now.month)
+    
+    # Sort month keys: current month first, then descending
+    month_keys = sorted(queries_by_month.keys(), key=lambda x: (x != current_month_year, -x[0], -x[1]))
+    
     # All queries for overview statistics (not paginated, without search filter)
     queries_list = Query.query.filter_by(admin_id=current_user.id).all()
 
-    # Follow-ups for visible queries only
-    visible_query_ids = [q[0].id for q in queries]
+    # Get all query IDs for follow-ups
+    all_query_ids = [q[0].id for q in all_queries]
     followups_by_query = {}
-    if visible_query_ids:
-        followups = FollowUp.query.filter(FollowUp.query_id.in_(visible_query_ids)).order_by(FollowUp.date_of_contact.desc()).all()
+    if all_query_ids:
+        followups = FollowUp.query.filter(FollowUp.query_id.in_(all_query_ids)).order_by(FollowUp.date_of_contact.desc()).all()
         for fu in followups:
             followups_by_query.setdefault(fu.query_id, []).append(fu)
     
     return render_template(
         'admin_dashboard.html',
         sales_persons=sales_persons,
-        queries=queries,
+        queries_by_month=queries_by_month,
+        month_keys=month_keys,
+        current_month_year=current_month_year,
         queries_list=queries_list,
         followups_by_query=followups_by_query,
-        page=page,
-        total_pages=total_pages,
         search_query=search_query,
     )
 
