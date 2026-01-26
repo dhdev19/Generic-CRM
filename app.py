@@ -92,7 +92,7 @@ class Query(db.Model):
     service_query = db.Column(db.Text, nullable=False)
     mail_id = db.Column(db.String(120), nullable=False)
     # New source column and updated closure domain
-    source = db.Column(db.String(50), default='reference')  # Gmb, justdial, facebook, website, reference, cold approach, youtube
+    source = db.Column(db.String(50), default='reference')  # Gmb, justdial, facebook, website, reference, cold approach, youtube, meta_ads
     # Closures: Closed, Prospect, Positive, pending, call again, bad mei bataenge,
     # not intrested, wrong enquiry, invalid, switch off, not picked
     closure = db.Column(db.String(30), default='pending')
