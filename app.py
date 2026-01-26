@@ -1295,7 +1295,7 @@ def api_website_lead():
             phone_number=data["phone_number"].strip(),
             service_query=data["service_query"].strip(),
             mail_id=data["mail_id"].strip(),
-            source=source,
+            source=data['source'] if 'source' in data else source,
             closure=data.get("closure", "pending").strip(),
             date_of_enquiry=date_of_enquiry
         )
