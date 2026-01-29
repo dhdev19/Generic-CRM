@@ -442,6 +442,46 @@ def remove_sales(id):
     
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/change-sales-password', methods=['POST'])
+@login_required
+def change_sales_password():
+    if session.get('user_type') != 'admin':
+        flash('Access denied')
+        return redirect(url_for('index'))
+    
+    sales_id = request.form.get('sales_id')
+    new_password = request.form.get('new_password')
+    confirm_password = request.form.get('confirm_password')
+    
+    if not sales_id or not new_password or not confirm_password:
+        flash('All fields are required')
+        return redirect(url_for('admin_dashboard'))
+    
+    if new_password != confirm_password:
+        flash('Passwords do not match')
+        return redirect(url_for('admin_dashboard'))
+    
+    if len(new_password) < 6:
+        flash('Password must be at least 6 characters long')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Get the sales person and verify they belong to this admin
+    sales = Sales.query.filter_by(id=sales_id, admin_id=current_user.id).first()
+    if not sales:
+        flash('Sales person not found or access denied')
+        return redirect(url_for('admin_dashboard'))
+    
+    try:
+        # Update the password
+        sales.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        flash(f'Password changed successfully for {sales.name}')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error changing password: {str(e)}')
+    
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin/add-query', methods=['GET', 'POST'])
 @login_required
 def add_query():
