@@ -133,7 +133,11 @@
         </div>
         <br><br>
         <button type="submit" class="btn btn-primary">Download DOCX</button>
+        {% if pdf_export_available %}
         <button type="button" class="btn btn-secondary" onclick="downloadPDF()">Download PDF</button>
+        {% else %}
+        <span class="text-muted small ms-2">(PDF not available on this server — use DOCX and convert locally if needed)</span>
+        {% endif %}
     </form>
 </div>
 

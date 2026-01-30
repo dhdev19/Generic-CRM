@@ -6,6 +6,8 @@ from datetime import datetime, timezone, timedelta
 import os
 from io import BytesIO
 import tempfile
+import subprocess
+import shutil
 from config import config
 
 # Optional: proposal generation (docxtpl, docx2pdf)
@@ -240,13 +242,59 @@ def _proposal_doc_path(office):
     return os.path.join(root, 'proposalMumbaiOffice.docx')
 
 
+def _libreoffice_available():
+    """True if LibreOffice (soffice) is installed for headless DOCX->PDF conversion."""
+    for cmd in ('libreoffice', 'soffice'):
+        if shutil.which(cmd):
+            try:
+                subprocess.run(
+                    [cmd, '--version'],
+                    capture_output=True,
+                    timeout=5,
+                )
+                return True
+            except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+                pass
+    return False
+
+
+def _pdf_export_available():
+    """True if PDF export can be used (Windows docx2pdf or LibreOffice headless)."""
+    if DOCX2PDF_AVAILABLE:
+        return True
+    return _libreoffice_available()
+
+
+def _convert_docx_to_pdf_libreoffice(docx_path, pdf_path):
+    """Convert DOCX to PDF using LibreOffice headless. Returns True on success."""
+    out_dir = os.path.dirname(pdf_path)
+    try:
+        result = subprocess.run(
+            [
+                shutil.which('libreoffice') or shutil.which('soffice'),
+                '--headless',
+                '--convert-to', 'pdf',
+                '--outdir', out_dir,
+                docx_path,
+            ],
+            capture_output=True,
+            timeout=60,
+            cwd=out_dir,
+        )
+        base = os.path.splitext(os.path.basename(docx_path))[0]
+        expected_pdf = os.path.join(out_dir, base + '.pdf')
+        return result.returncode == 0 and os.path.isfile(expected_pdf)
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return False
+
+
 @app.route('/proposal', methods=['GET'])
 @login_required
 def proposal_form():
     if not _proposal_allowed():
         flash('Access denied')
         return redirect(url_for('index'))
-    return render_template('proposal_form.html')
+    return render_template('proposal_form.html', pdf_export_available=_pdf_export_available())
 
 
 @app.route('/proposal/submit', methods=['POST'])
@@ -317,8 +365,8 @@ def proposal_download_pdf():
     if not DOCXTPL_AVAILABLE:
         flash('Proposal DOCX is required. Install: pip install docxtpl')
         return redirect(url_for('proposal_form'))
-    if not DOCX2PDF_AVAILABLE:
-        flash('PDF export is not available on this server (docx2pdf is Windows-only). Use Download DOCX instead.')
+    if not _pdf_export_available():
+        flash('PDF export is not available. Use Download DOCX, or install LibreOffice (Linux/Mac) for PDF.')
         return redirect(url_for('proposal_form'))
     client_name = request.form.get('client_name', '').strip()
     initial_payment = request.form.get('initial_payment', '')
@@ -365,10 +413,28 @@ def proposal_download_pdf():
     with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
         doc.save(f.name)
         temp_docx = f.name
-    temp_pdf = tempfile.mktemp(suffix='.pdf')
+    out_dir = os.path.dirname(temp_docx)
+    base_name = os.path.splitext(os.path.basename(temp_docx))[0]
+    temp_pdf = os.path.join(out_dir, base_name + '.pdf')
+    pdf_generated = False
     try:
-        pythoncom.CoInitialize()
-        docx2pdf_convert(temp_docx, temp_pdf)
+        if DOCX2PDF_AVAILABLE:
+            try:
+                pythoncom.CoInitialize()
+                docx2pdf_convert(temp_docx, temp_pdf)
+                pdf_generated = os.path.isfile(temp_pdf)
+            except Exception:
+                pass
+            finally:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+        if not pdf_generated and _libreoffice_available():
+            pdf_generated = _convert_docx_to_pdf_libreoffice(temp_docx, temp_pdf)
+        if not pdf_generated:
+            flash('PDF conversion failed. Use Download DOCX instead.')
+            return redirect(url_for('proposal_form'))
         with open(temp_pdf, 'rb') as f:
             pdf_data = f.read()
         filename = f"{client_name.replace(' ', '_')}_proposal.pdf"
@@ -377,13 +443,9 @@ def proposal_download_pdf():
             'Content-Disposition': f'attachment; filename="{filename}"',
         }
     finally:
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
         for p in (temp_docx, temp_pdf):
             try:
-                if os.path.isfile(p):
+                if p and os.path.isfile(p):
                     os.unlink(p)
             except Exception:
                 pass
