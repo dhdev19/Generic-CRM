@@ -39,81 +39,81 @@
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-4">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Summary</h6>
-            </div>
-            <div class="card-body">
-                <div class="mb-2 d-flex justify-content-between">
-                    <span>Total</span>
-                    <strong>{{ results|length }}</strong>
-                </div>
+<div class="card mb-4">
+    <div class="card-header">
+        <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Summary</h6>
+    </div>
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+            <span>Total</span>
+            <strong class="fs-5">{{ results|length }}</strong>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="text-muted small mb-2">By Closure</h6>
                 <div class="small">
                     {% for c, count in by_closure.items() %}
-                        <div class="d-flex justify-content-between">
-                            <span>{{ c|title }}</span>
-                            <strong>{{ count }}</strong>
-                        </div>
+                    <div class="d-flex justify-content-between">
+                        <span>{{ c|title }}</span>
+                        <strong>{{ count }}</strong>
+                    </div>
                     {% endfor %}
                 </div>
-                <hr>
-                <h6 class="text-muted">By Source</h6>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted small mb-2">By Source</h6>
                 <div class="small">
                     {% for s, count in by_source.items() %}
-                        <div class="d-flex justify-content-between">
-                            <span>{{ s|title }}</span>
-                            <strong>{{ count }}</strong>
-                        </div>
+                    <div class="d-flex justify-content-between">
+                        <span>{{ s|title }}</span>
+                        <strong>{{ count }}</strong>
+                    </div>
                     {% endfor %}
                 </div>
             </div>
         </div>
     </div>
+</div>
 
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-header">
-                <h6 class="mb-0"><i class="fas fa-table me-2"></i>Filtered Results</h6>
-            </div>
-            <div class="card-body">
-                {% if results %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Customer</th>
-                                    <th>Source</th>
-                                    <th>Closure</th>
-                                    <th>Service</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for r in results %}
-                                <tr>
-                                    <td><small>{{ r.date_of_enquiry.strftime('%Y-%m-%d') }}</small></td>
-                                    <td>
-                                        <strong>{{ r.name }}</strong><br>
-                                        <small class="text-muted">{{ r.phone_number }}</small>
-                                    </td>
-                                    <td><small>{{ (r.source or 'reference')|title }}</small></td>
-                                    <td>
-                                        {% set c = r.closure or 'pending' %}
-                                        <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
-                                    </td>
-                                    <td><small>{{ r.service_query[:40] }}{% if r.service_query|length > 40 %}...{% endif %}</small></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <p class="text-muted mb-0">No results for the selected filters.</p>
-                {% endif %}
-            </div>
+<div class="card">
+    <div class="card-header">
+        <h6 class="mb-0"><i class="fas fa-table me-2"></i>Filtered Results</h6>
+    </div>
+    <div class="card-body">
+        {% if results %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Customer</th>
+                        <th>Source</th>
+                        <th>Closure</th>
+                        <th>Service</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in results %}
+                    <tr>
+                        <td><small>{{ r.date_of_enquiry.strftime('%Y-%m-%d') }}</small></td>
+                        <td>
+                            <strong>{{ r.name }}</strong><br>
+                            <small class="text-muted">{{ r.phone_number }}</small>
+                        </td>
+                        <td><small>{{ (r.source or 'reference')|title }}</small></td>
+                        <td>
+                            {% set c = r.closure or 'pending' %}
+                            <span class="badge{% if c == 'pending' %} bg-warning{% elif c == 'Positive' %} bg-primary{% elif c == 'Closed' %} bg-success{% elif c == 'Prospect' %} bg-success-subtle text-success{% else %} bg-secondary{% endif %}">{{ c|title }}</span>
+                        </td>
+                        <td><small>{{ r.service_query[:40] }}{% if r.service_query|length > 40 %}...{% endif %}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
+        {% else %}
+        <p class="text-muted mb-0">No results for the selected filters.</p>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

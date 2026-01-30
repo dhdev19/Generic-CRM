@@ -50,14 +50,12 @@
         <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Summary</h6>
     </div>
     <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+            <span>Total</span>
+            <strong class="fs-5">{{ results|length }}</strong>
+        </div>
         <div class="row">
-            <div class="col-md-4">
-                <div class="mb-2 d-flex justify-content-between">
-                    <span>Total</span>
-                    <strong>{{ results|length }}</strong>
-                </div>
-            </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
                 <h6 class="text-muted small mb-2">By Closure</h6>
                 <div class="small">
                     {% for c, count in by_closure.items() %}
@@ -68,7 +66,7 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
                 <h6 class="text-muted small mb-2">By Source</h6>
                 <div class="small">
                     {% for s, count in by_source.items() %}
