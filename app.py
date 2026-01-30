@@ -1075,18 +1075,35 @@ def admin_analytics():
     except Exception:
         pass
 
-    results = q.order_by(Query.date_of_enquiry.desc()).all()
+    results_all = q.order_by(Query.date_of_enquiry.desc()).all()
+    total_count = len(results_all)
+    per_page = 25
+    page = request.args.get('page', 1, type=int)
+    total_pages = (total_count + per_page - 1) // per_page if total_count else 1
+    page = max(1, min(page, total_pages))
+    results = results_all[(page - 1) * per_page:page * per_page]
+    result_ids = [r.id for r in results]
+    followups_by_query = {}
+    if result_ids:
+        followups = FollowUp.query.filter(FollowUp.query_id.in_(result_ids)).order_by(FollowUp.date_of_contact.desc()).all()
+        for fu in followups:
+            followups_by_query.setdefault(fu.query_id, []).append(fu)
 
     from collections import Counter
-    by_closure = Counter([(r.closure or 'pending') for r in results])
-    by_source = Counter([(r.source or 'reference') for r in results])
+    by_closure = Counter([(r.closure or 'pending') for r in results_all])
+    by_source = Counter([(r.source or 'reference') for r in results_all])
 
     return render_template(
         'admin_analytics.html',
         results=results,
         sales_people=sales_people,
+        followups_by_query=followups_by_query,
         by_closure=by_closure,
         by_source=by_source,
+        total_count=total_count,
+        page=page,
+        total_pages=total_pages,
+        per_page=per_page,
         filters={
             'year': selected_year or '',
             'month': selected_month or '',
