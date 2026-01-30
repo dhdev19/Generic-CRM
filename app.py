@@ -4,7 +4,23 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, timedelta
 import os
+from io import BytesIO
+import tempfile
 from config import config
+
+# Optional: proposal generation (docxtpl, docx2pdf)
+try:
+    from docxtpl import DocxTemplate
+    DOCXTPL_AVAILABLE = True
+except ImportError:
+    DOCXTPL_AVAILABLE = False
+try:
+    import pythoncom
+    from docx2pdf import convert as docx2pdf_convert
+    DOCX2PDF_AVAILABLE = True
+except ImportError:
+    DOCX2PDF_AVAILABLE = False
+    pythoncom = None
 import pymysql
 from sqlalchemy import desc, or_
 
@@ -209,6 +225,169 @@ def logout():
     logout_user()
     session.clear()
     return redirect(url_for('index'))
+
+
+def _proposal_allowed():
+    """Allow proposal access for admin and sales only."""
+    return session.get('user_type') in ('admin', 'sales')
+
+
+def _proposal_doc_path(office):
+    """Path to .docx template; office is 'lucknow' or 'bombay'. Looks in project root."""
+    root = app.root_path
+    if office == 'lucknow':
+        return os.path.join(root, 'proposal.docx')
+    return os.path.join(root, 'proposalMumbaiOffice.docx')
+
+
+@app.route('/proposal', methods=['GET'])
+@login_required
+def proposal_form():
+    if not _proposal_allowed():
+        flash('Access denied')
+        return redirect(url_for('index'))
+    return render_template('proposal_form.html')
+
+
+@app.route('/proposal/submit', methods=['POST'])
+@login_required
+def proposal_submit():
+    if not _proposal_allowed() or not DOCXTPL_AVAILABLE:
+        if not _proposal_allowed():
+            return redirect(url_for('index'))
+        flash('Proposal generation is not available. Install: pip install docxtpl')
+        return redirect(url_for('proposal_form'))
+    client_name = request.form.get('client_name', '').strip()
+    initial_payment = request.form.get('initial_payment', '')
+    office = request.form.get('office', 'lucknow')
+    particulars = request.form.getlist('particular')
+    amounts = request.form.getlist('amount')
+    remarks = request.form.getlist('remark')
+    items = []
+    for p, a, r in zip(particulars, amounts, remarks):
+        if (p or '').strip() and (a or '').strip():
+            items.append({'particular': p.strip(), 'amount': a.strip(), 'remark': (r or '').strip()})
+    doc_path = _proposal_doc_path(office)
+    if not os.path.isfile(doc_path):
+        flash(f'Proposal template not found: {os.path.basename(doc_path)}. Add it in the project root.')
+        return redirect(url_for('proposal_form'))
+    doc = DocxTemplate(doc_path)
+    sub = doc.new_subdoc()
+    table = sub.add_table(rows=1, cols=4)
+    table.style = 'Table Grid'
+    hdr = table.rows[0].cells
+    hdr[0].text, hdr[1].text, hdr[2].text, hdr[3].text = 'Sr. No', 'Particular', 'Amount', 'Remark'
+    for i, item in enumerate(items, 1):
+        row = table.add_row().cells
+        row[0].text, row[1].text, row[2].text, row[3].text = str(i), item['particular'], item['amount'], item['remark']
+    context = {
+        'client_name': client_name,
+        'initial_payment': initial_payment,
+        'budget_table': sub,
+        'smm': request.form.get('smm') == 'true',
+        'landing_page': request.form.get('landing_page') == 'true',
+        'multipage_website': request.form.get('multipage_website') == 'true',
+        'seo': request.form.get('seo') == 'true',
+        'meta_ads': request.form.get('meta_ads') == 'true',
+        'google_ads': request.form.get('google_ads') == 'true',
+        'out1': request.form.get('out1') == 'true',
+        'out2': request.form.get('out2') == 'true',
+        'out3': request.form.get('out3') == 'true',
+        'multiple_custom_outcomes': request.form.get('multiple_custom_outcomes') == 'true',
+        'creatives': request.form.get('creatives', ''),
+        'reels': request.form.get('reels', ''),
+        'outcomes': request.form.getlist('outcomes') or [],
+    }
+    doc.render(context)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    filename = f"{client_name.replace(' ', '_')}_proposal.docx"
+    return buf.getvalue(), 200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': f'attachment; filename="{filename}"',
+    }
+
+
+@app.route('/proposal/download_pdf', methods=['POST'])
+@login_required
+def proposal_download_pdf():
+    if not _proposal_allowed():
+        return redirect(url_for('index'))
+    if not DOCXTPL_AVAILABLE:
+        flash('Proposal DOCX is required. Install: pip install docxtpl')
+        return redirect(url_for('proposal_form'))
+    if not DOCX2PDF_AVAILABLE:
+        flash('PDF export is not available on this server (docx2pdf is Windows-only). Use Download DOCX instead.')
+        return redirect(url_for('proposal_form'))
+    client_name = request.form.get('client_name', '').strip()
+    initial_payment = request.form.get('initial_payment', '')
+    office = request.form.get('office', 'lucknow')
+    particulars = request.form.getlist('particular')
+    amounts = request.form.getlist('amount')
+    remarks = request.form.getlist('remark')
+    items = []
+    for p, a, r in zip(particulars, amounts, remarks):
+        if (p or '').strip() and (a or '').strip():
+            items.append({'particular': p.strip(), 'amount': a.strip(), 'remark': (r or '').strip()})
+    doc_path = _proposal_doc_path(office)
+    if not os.path.isfile(doc_path):
+        flash(f'Proposal template not found: {os.path.basename(doc_path)}.')
+        return redirect(url_for('proposal_form'))
+    doc = DocxTemplate(doc_path)
+    sub = doc.new_subdoc()
+    table = sub.add_table(rows=1, cols=4)
+    table.style = 'Table Grid'
+    hdr = table.rows[0].cells
+    hdr[0].text, hdr[1].text, hdr[2].text, hdr[3].text = 'Sr. No', 'Particular', 'Amount', 'Remark'
+    for i, item in enumerate(items, 1):
+        row = table.add_row().cells
+        row[0].text, row[1].text, row[2].text, row[3].text = str(i), item['particular'], item['amount'], item['remark']
+    context = {
+        'client_name': client_name,
+        'initial_payment': initial_payment,
+        'budget_table': sub,
+        'smm': request.form.get('smm') == 'true',
+        'landing_page': request.form.get('landing_page') == 'true',
+        'multipage_website': request.form.get('multipage_website') == 'true',
+        'seo': request.form.get('seo') == 'true',
+        'meta_ads': request.form.get('meta_ads') == 'true',
+        'google_ads': request.form.get('google_ads') == 'true',
+        'out1': request.form.get('out1') == 'true',
+        'out2': request.form.get('out2') == 'true',
+        'out3': request.form.get('out3') == 'true',
+        'multiple_custom_outcomes': request.form.get('multiple_custom_outcomes') == 'true',
+        'creatives': request.form.get('creatives', ''),
+        'reels': request.form.get('reels', ''),
+        'outcomes': request.form.getlist('outcomes') or [],
+    }
+    doc.render(context)
+    with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+        doc.save(f.name)
+        temp_docx = f.name
+    temp_pdf = tempfile.mktemp(suffix='.pdf')
+    try:
+        pythoncom.CoInitialize()
+        docx2pdf_convert(temp_docx, temp_pdf)
+        with open(temp_pdf, 'rb') as f:
+            pdf_data = f.read()
+        filename = f"{client_name.replace(' ', '_')}_proposal.pdf"
+        return pdf_data, 200, {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': f'attachment; filename="{filename}"',
+        }
+    finally:
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+        for p in (temp_docx, temp_pdf):
+            try:
+                if os.path.isfile(p):
+                    os.unlink(p)
+            except Exception:
+                pass
+
 
 # Super Admin Routes
 @app.route('/super-admin/dashboard')

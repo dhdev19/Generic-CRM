@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}Proposal - CRM System{% endblock %}
+{% block page_title %}Proposal{% endblock %}
+
+{% block content %}
+<style>
+    .proposal-form h2 {
+        color: #333;
+        border-bottom: 2px solid #192e81;
+        padding-bottom: 10px;
+        margin-top: 30px;
+    }
+    .proposal-form h3 { color: #555; margin-top: 20px; }
+    .proposal-form label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
+    .proposal-form input[type="text"],
+    .proposal-form input[type="number"] {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    .proposal-form input[type="checkbox"] { margin-right: 10px; transform: scale(1.2); }
+    .proposal-form table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+        background-color: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .proposal-form th, .proposal-form td { padding: 12px; text-align: left; border: 1px solid #ddd; }
+    .proposal-form th { background-color: #192e81; color: white; font-weight: bold; }
+    .proposal-form button.btn-primary { background: #192e81; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 10px 5px; }
+    .proposal-form button.btn-secondary { background: #6c757d; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 10px 5px; }
+    .proposal-form #smm-details { background-color: #f8f9fa; padding: 15px; border-radius: 4px; margin: 10px 0; border-left: 4px solid #192e81; }
+    .proposal-form #outcomes-container { background-color: #f8f9fa; padding: 15px; border-radius: 4px; margin: 10px 0; }
+    .proposal-form .checkbox-group { background-color: white; padding: 15px; margin: 10px 0; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .proposal-form .checkbox-group label { font-weight: normal; margin-bottom: 10px; }
+</style>
+
+<div class="proposal-form">
+    <form action="{{ url_for('proposal_submit') }}" method="post">
+        <h2>Office</h2>
+        <div class="checkbox-group">
+            <label><input type="radio" name="office" value="lucknow" required> Lucknow Office</label>
+            <label><input type="radio" name="office" value="bombay" required> Bombay Office</label>
+        </div>
+        <h2>Client Information</h2>
+        <label for="client_name">Client Name</label>
+        <input type="text" id="client_name" name="client_name" required>
+        <label for="initial_payment">Initial Payment</label>
+        <input type="text" id="initial_payment" name="initial_payment" required>
+        <h2>Marketing Budget</h2>
+        <table>
+            <tr>
+                <th>Particular</th>
+                <th>Amount</th>
+                <th>Remark</th>
+            </tr>
+            <tbody id="budget-rows">
+                <tr>
+                    <td><input type="text" name="particular"></td>
+                    <td><input type="text" name="amount"></td>
+                    <td><input type="text" name="remark"></td>
+                </tr>
+            </tbody>
+            <tr>
+                <td colspan="3"><button type="button" class="btn btn-secondary" onclick="addRow()">Add Row</button></td>
+            </tr>
+        </table>
+        <h2>Services</h2>
+        <div class="checkbox-group">
+            <h3>SMM (Social Media Management)</h3>
+            <input type="checkbox" id="smm" name="smm" value="true">
+            <label for="smm">Include SMM Service</label>
+            <br>
+            <div id="smm-details" style="display:none;">
+                <label for="creatives">Number of Creatives per month:</label>
+                <input type="number" id="creatives" name="creatives">
+                <br>
+                <label for="reels">Number of Reels per month:</label>
+                <input type="number" id="reels" name="reels">
+            </div>
+        </div>
+        <div class="checkbox-group">
+            <h3>Landing Page Development</h3>
+            <input type="checkbox" id="landing_page" name="landing_page" value="true">
+            <label for="landing_page">Include Landing Page Service</label>
+        </div>
+        <div class="checkbox-group">
+            <h3>Multi Pages Website Development</h3>
+            <input type="checkbox" id="multipage_website" name="multipage_website" value="true">
+            <label for="multipage_website">Include Multi Page Website Service</label>
+        </div>
+        <div class="checkbox-group">
+            <h3>SEO (Website / Landing page)</h3>
+            <input type="checkbox" id="seo" name="seo" value="true">
+            <label for="seo">Include SEO Service</label>
+        </div>
+        <div class="checkbox-group">
+            <h3>META ADS (FACEBOOK+INSTAGRAM)</h3>
+            <input type="checkbox" id="meta_ads" name="meta_ads" value="true">
+            <label for="meta_ads">Include META ADS Service</label>
+        </div>
+        <div class="checkbox-group">
+            <h3>Google Ads (Search + Display + YouTube)</h3>
+            <input type="checkbox" id="google_ads" name="google_ads" value="true">
+            <label for="google_ads">Include Google Ads Service</label>
+        </div>
+        <h2>Expected Outcomes</h2>
+        <div class="checkbox-group">
+            <input type="checkbox" id="out1" name="out1" value="true">
+            <label for="out1">Increased high-quality leads Lower cost per lead (CPL) Higher site visits</label>
+            <br>
+            <input type="checkbox" id="out2" name="out2" value="true">
+            <label for="out2">Better conversions</label>
+            <br>
+            <input type="checkbox" id="out3" name="out3" value="true">
+            <label for="out3">Strong digital brand presence</label>
+        </div>
+        <div class="checkbox-group">
+            <h3>Custom Outcomes</h3>
+            <input type="checkbox" id="multiple_custom_outcomes" name="multiple_custom_outcomes" value="true">
+            <label for="multiple_custom_outcomes">Add custom outcomes</label>
+            <br>
+            <div id="outcomes-container">
+                <input type="text" name="outcomes" placeholder="Enter custom outcome">
+                <br>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="addOutcome()">Add More Outcomes</button>
+        </div>
+        <br><br>
+        <button type="submit" class="btn btn-primary">Download DOCX</button>
+        <button type="button" class="btn btn-secondary" onclick="downloadPDF()">Download PDF</button>
+    </form>
+</div>
+
+<script>
+function addRow() {
+    var tbody = document.getElementById('budget-rows');
+    var newRow = tbody.insertRow(-1);
+    var cell1 = newRow.insertCell(0);
+    var cell2 = newRow.insertCell(1);
+    var cell3 = newRow.insertCell(2);
+    cell1.innerHTML = '<input type="text" name="particular">';
+    cell2.innerHTML = '<input type="text" name="amount">';
+    cell3.innerHTML = '<input type="text" name="remark">';
+}
+function addOutcome() {
+    var container = document.getElementById('outcomes-container');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.name = 'outcomes';
+    input.placeholder = 'Enter outcome';
+    input.className = 'form-control';
+    container.appendChild(input);
+    container.appendChild(document.createElement('br'));
+}
+document.getElementById('smm').addEventListener('change', function() {
+    document.getElementById('smm-details').style.display = this.checked ? 'block' : 'none';
+});
+function downloadPDF() {
+    var form = document.querySelector('.proposal-form form');
+    var formData = new FormData(form);
+    fetch('{{ url_for("proposal_download_pdf") }}', {
+        method: 'POST',
+        body: formData,
+        redirect: 'manual'
+    })
+    .then(function(response) {
+        if (response.status === 302 || response.type === 'opaqueredirect') {
+            var loc = response.headers.get('Location');
+            if (loc) window.location.href = loc;
+            else window.location.reload();
+            return null;
+        }
+        return response.blob();
+    })
+    .then(function(blob) {
+        if (!blob) return;
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'proposal.pdf';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    })
+    .catch(function(err) {
+        console.error(err);
+        alert('Error downloading PDF. Use Download DOCX if PDF is not available on this server.');
+    });
+}
+</script>
+{% endblock %}

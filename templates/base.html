@@ -112,6 +112,11 @@
                                     <i class="fas fa-file-alt me-2"></i>Daily Reports
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('proposal_form') }}">
+                                    <i class="fas fa-file-contract me-2"></i>Proposal
+                                </a>
+                            </li>
                         {% elif session.user_type == 'sales' %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('sales_dashboard') }}">
@@ -127,6 +132,11 @@
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('sales_analytics') }}">
                                     <i class="fas fa-chart-line me-2"></i>Analytics
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('proposal_form') }}">
+                                    <i class="fas fa-file-contract me-2"></i>Proposal
                                 </a>
                             </li>
                         {% endif %}
