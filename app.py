@@ -1500,7 +1500,7 @@ def api_add_query():
         data = request.json
         
         # Validate required fields
-        required_fields = ["admin_id", "sales_id", "service_query"]
+        required_fields = ["admin_id", "sales_id"]
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"status": "error", "message": f"Missing required field: {field}"}), 400
@@ -1529,7 +1529,7 @@ def api_add_query():
         name = data.get("name", "").strip() if data.get("name") else "N/A"
         phone_number = data.get("phone_number", "").strip() if data.get("phone_number") else "N/A"
         mail_id = data.get("mail_id", "").strip() if data.get("mail_id") else "johndoe@example.com"
-        service_query = data["service_query"].strip()
+        service_query = data.get("service_query", "").strip() if data.get("service_query") else "N/A"
         source = data.get("source", "reference").strip() if data.get("source") else "reference"
         closure = data.get("closure", "pending").strip() if data.get("closure") else "pending"
         
