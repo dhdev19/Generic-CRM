@@ -453,8 +453,9 @@ def proposal_download_pdf():
                 pass
 
 
-# Invoice (admin/sales only)
-INVOICE_TEMPLATE_NAME = 'Billing.docx'
+# Invoice (admin only)
+INVOICE_TEMPLATE_UP = 'Billing.docx'
+INVOICE_TEMPLATE_OTHER_STATE = 'BillingOther.docx'
 
 
 def _invoice_allowed():
@@ -479,9 +480,12 @@ def invoice_generate():
     if not DOCXTPL_AVAILABLE or RichText is None:
         flash('Invoice generation requires docxtpl. Install: pip install docxtpl')
         return redirect(url_for('invoice_form'))
-    doc_path = os.path.join(app.root_path, INVOICE_TEMPLATE_NAME)
+    invoice_type = (request.form.get('invoice_type') or 'up').strip().lower()
+    is_other_state = invoice_type == 'other'
+    template_name = INVOICE_TEMPLATE_OTHER_STATE if is_other_state else INVOICE_TEMPLATE_UP
+    doc_path = os.path.join(app.root_path, template_name)
     if not os.path.isfile(doc_path):
-        flash(f'Invoice template not found: {INVOICE_TEMPLATE_NAME}. Add it in the project root.')
+        flash(f'Invoice template not found: {template_name}. Add it in the project root.')
         return redirect(url_for('invoice_form'))
     hsn_list = request.form.getlist('hsn_sac[]')
     desc_list = request.form.getlist('description[]')
@@ -519,10 +523,7 @@ def invoice_generate():
         discount = 0.0
         other_charges = 0.0
     taxable_value = total_amount - discount
-    cgst = taxable_value * 0.09
-    sgst = taxable_value * 0.09
-    grand_total = taxable_value + cgst + sgst + other_charges
-    context = {
+    base_context = {
         'customer_name': request.form.get('customer_name', ''),
         'customer_address': request.form.get('customer_address', ''),
         'cust_gst': request.form.get('cust_gst', ''),
@@ -535,11 +536,25 @@ def invoice_generate():
         'total': total_text,
         'total_taxable': round(total_amount, 2),
         'discount': round(discount, 2),
-        'cgst': round(cgst, 2),
-        'sgst': round(sgst, 2),
         'other_charges': round(other_charges, 2),
-        'grand_total': round(grand_total, 2),
+        'grand_total': 0,  # set below
     }
+    if is_other_state:
+        igst = taxable_value * 0.18
+        grand_total = taxable_value + igst + other_charges
+        base_context['grand_total'] = round(grand_total, 2)
+        base_context['igst'] = round(igst, 2)
+        # BillingOther.docx has no cgst/sgst fields
+        context = base_context
+    else:
+        cgst = taxable_value * 0.09
+        sgst = taxable_value * 0.09
+        grand_total = taxable_value + cgst + sgst + other_charges
+        base_context['grand_total'] = round(grand_total, 2)
+        base_context['cgst'] = round(cgst, 2)
+        base_context['sgst'] = round(sgst, 2)
+        # Billing.docx has no igst field
+        context = base_context
     doc = DocxTemplate(doc_path)
     doc.render(context)
     buf = BytesIO()

@@ -50,6 +50,20 @@
     {% endwith %}
 
     <form method="POST" action="{{ url_for('invoice_generate') }}">
+        <h2><i class="fas fa-file-invoice me-2"></i>Invoice Type</h2>
+        <div class="form-group">
+            <div class="d-flex gap-4">
+                <label class="d-flex align-items-center gap-2">
+                    <input type="radio" name="invoice_type" value="up" checked required>
+                    UP Invoice
+                </label>
+                <label class="d-flex align-items-center gap-2">
+                    <input type="radio" name="invoice_type" value="other">
+                    Other State Invoice
+                </label>
+            </div>
+        </div>
+
         <h2><i class="fas fa-user me-2"></i>Customer Details</h2>
         <div class="row">
             <div class="col-md-6">
