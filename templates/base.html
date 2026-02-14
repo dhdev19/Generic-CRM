@@ -121,6 +121,11 @@
                                     <i class="fas fa-file-contract me-2"></i>Proposal
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('invoice_form') }}">
+                                    <i class="fas fa-file-invoice me-2"></i>Invoice
+                                </a>
+                            </li>
                         {% elif session.user_type == 'sales' %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('sales_dashboard') }}">

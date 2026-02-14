@@ -10,11 +10,13 @@ import subprocess
 import shutil
 from config import config
 
-# Optional: proposal generation (docxtpl, docx2pdf)
+# Optional: proposal/invoice generation (docxtpl, docx2pdf)
 try:
-    from docxtpl import DocxTemplate
+    from docxtpl import DocxTemplate, RichText
     DOCXTPL_AVAILABLE = True
 except ImportError:
+    DocxTemplate = None
+    RichText = None
     DOCXTPL_AVAILABLE = False
 try:
     import pythoncom
@@ -449,6 +451,105 @@ def proposal_download_pdf():
                     os.unlink(p)
             except Exception:
                 pass
+
+
+# Invoice (admin/sales only)
+INVOICE_TEMPLATE_NAME = 'Billing.docx'
+
+
+def _invoice_allowed():
+    """Invoice is admin only."""
+    return session.get('user_type') == 'admin'
+
+
+@app.route('/invoice', methods=['GET'])
+@login_required
+def invoice_form():
+    if not _invoice_allowed():
+        flash('Access denied')
+        return redirect(url_for('index'))
+    return render_template('invoice_form.html')
+
+
+@app.route('/invoice/generate', methods=['POST'])
+@login_required
+def invoice_generate():
+    if not _invoice_allowed():
+        return redirect(url_for('index'))
+    if not DOCXTPL_AVAILABLE or RichText is None:
+        flash('Invoice generation requires docxtpl. Install: pip install docxtpl')
+        return redirect(url_for('invoice_form'))
+    doc_path = os.path.join(app.root_path, INVOICE_TEMPLATE_NAME)
+    if not os.path.isfile(doc_path):
+        flash(f'Invoice template not found: {INVOICE_TEMPLATE_NAME}. Add it in the project root.')
+        return redirect(url_for('invoice_form'))
+    hsn_list = request.form.getlist('hsn_sac[]')
+    desc_list = request.form.getlist('description[]')
+    rate_list = request.form.getlist('rate[]')
+    qty_list = request.form.getlist('quantity[]')
+    if not hsn_list or not desc_list or not rate_list or not qty_list:
+        flash('Add at least one invoice item.')
+        return redirect(url_for('invoice_form'))
+    total_amount = 0.0
+    hsn_text = RichText()
+    desc_text = RichText()
+    rate_text = RichText()
+    total_text = RichText()
+    for i, (hsn, desc, rate, qty) in enumerate(zip(hsn_list, desc_list, rate_list, qty_list)):
+        try:
+            rate_f = float(rate)
+            qty_f = float(qty)
+        except (ValueError, TypeError):
+            continue
+        item_total = rate_f * qty_f
+        total_amount += item_total
+        if i > 0:
+            hsn_text.add('\n')
+            desc_text.add('\n')
+            rate_text.add('\n')
+            total_text.add('\n')
+        hsn_text.add(str(hsn).strip())
+        desc_text.add(str(desc).strip())
+        rate_text.add(str(round(rate_f, 2)))
+        total_text.add(str(round(item_total, 2)))
+    try:
+        discount = float(request.form.get('discount') or 0)
+        other_charges = float(request.form.get('other_charges') or 0)
+    except (ValueError, TypeError):
+        discount = 0.0
+        other_charges = 0.0
+    taxable_value = total_amount - discount
+    cgst = taxable_value * 0.09
+    sgst = taxable_value * 0.09
+    grand_total = taxable_value + cgst + sgst + other_charges
+    context = {
+        'customer_name': request.form.get('customer_name', ''),
+        'customer_address': request.form.get('customer_address', ''),
+        'cust_gst': request.form.get('cust_gst', ''),
+        'place_of_supply': request.form.get('place_of_supply', ''),
+        'invoice_number': request.form.get('invoice_number', ''),
+        'date': request.form.get('date', ''),
+        'hsn_sac': hsn_text,
+        'description': desc_text,
+        'rate': rate_text,
+        'total': total_text,
+        'total_taxable': round(total_amount, 2),
+        'discount': round(discount, 2),
+        'cgst': round(cgst, 2),
+        'sgst': round(sgst, 2),
+        'other_charges': round(other_charges, 2),
+        'grand_total': round(grand_total, 2),
+    }
+    doc = DocxTemplate(doc_path)
+    doc.render(context)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    download_name = f"Invoice_{request.form.get('invoice_number', 'invoice').replace(' ', '_')}.docx"
+    return buf.getvalue(), 200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': f'attachment; filename="{download_name}"',
+    }
 
 
 # Super Admin Routes
