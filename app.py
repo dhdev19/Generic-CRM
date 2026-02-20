@@ -925,6 +925,7 @@ def edit_query(id):
     sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
     
     if request.method == 'POST':
+        old_sales_id = query.sales_id
         query.name = request.form['name']
         query.phone_number = request.form['phone_number']
         query.service_query = request.form['service_query']
@@ -949,10 +950,9 @@ def edit_query(id):
         
         db.session.commit()
         
-        # Send notification to sales person about query update
-        # If sales person changed, notify the new sales person
+        # Notify assignment/reassignment after update.
         try:
-            send_new_query_notification_to_sales(query.sales_id, query)
+            notify_query_assignment(query, previous_sales_id=old_sales_id)
         except Exception:
             pass
         flash('Query updated successfully')
@@ -1014,6 +1014,7 @@ def update_query_sales():
         
         # Update sales person if changed
         if query.sales_id != new_sales_id:
+            old_sales_id = query.sales_id
             query.sales_id = new_sales_id
             query.updated_at = get_ist_now()  # Update timestamp when reassigned
             
@@ -1024,9 +1025,9 @@ def update_query_sales():
             
             db.session.commit()
             
-            # Send notification to sales person about query update
+            # Send notification(s) for reassignment
             try:
-                send_new_query_notification_to_sales(query.sales_id, query)
+                notify_query_assignment(query, previous_sales_id=old_sales_id)
             except Exception:
                 pass
             
@@ -2463,39 +2464,99 @@ def api_notify_sales(sales_id: int):
 #     return resp.success_count
 
 
-def send_notification_to_sales_device(sales_id: int, title: str, body: str, data: dict) -> int:
-    """
-    Send notification to a single device for the given sales_id.
-    Returns 1 if sent successfully, 0 otherwise.
-    """
+def _send_fcm_with_fallback(token_rows, id_attr: str, title: str, body: str, data: dict, owner_label: str) -> int:
     if firebase_admin is None:
         return 0
-
-    # Fetch the latest active device token for the sales_id
-    token_obj = DeviceToken.query.filter_by(sales_id=sales_id, is_active=True).order_by(DeviceToken.updated_at.desc()).first()
-    if not token_obj:
+    if not token_rows:
         return 0
 
-    try:
-        message = _fb_messaging.Message(
-            notification=_fb_messaging.Notification(title=title, body=body),
-            token=token_obj.device_token,
-            data={k: str(v) for k, v in (data or {}).items()}
+    stale_ids = []
+    payload = {k: str(v) for k, v in (data or {}).items()}
+    for row in token_rows:
+        token_id = getattr(row, id_attr)
+        try:
+            message = _fb_messaging.Message(
+                notification=_fb_messaging.Notification(title=title, body=body),
+                token=row.device_token,
+                data=payload
+            )
+            _fb_messaging.send(message)
+            return 1
+        except Exception as e:
+            err = str(e).lower()
+            if 'registration-token-not-registered' in err or 'requested entity was not found' in err:
+                stale_ids.append(row.id)
+                print(f"FCM stale token for {owner_label}={token_id}, token_id={row.id}: {e}")
+            else:
+                print(f"FCM send error for {owner_label}={token_id}, token_id={row.id}: {e}")
+
+    if stale_ids:
+        try:
+            model = DeviceToken if owner_label == "sales_id" else AdminDeviceToken
+            model.query.filter(model.id.in_(stale_ids)).update({"is_active": False}, synchronize_session=False)
+            db.session.commit()
+        except Exception as cleanup_exc:
+            db.session.rollback()
+            print(f"FCM stale token cleanup error for {owner_label}: {cleanup_exc}")
+    return 0
+
+def send_notification_to_sales_device(sales_id: int, title: str, body: str, data: dict) -> int:
+    token_rows = DeviceToken.query.filter_by(sales_id=sales_id, is_active=True).order_by(DeviceToken.updated_at.desc()).all()
+    return _send_fcm_with_fallback(token_rows, "sales_id", title, body, data, "sales_id")
+
+def send_notification_to_admin_device(admin_id: int, title: str, body: str, data: dict) -> int:
+    token_rows = AdminDeviceToken.query.filter_by(admin_id=admin_id, is_active=True).order_by(AdminDeviceToken.updated_at.desc()).all()
+    return _send_fcm_with_fallback(token_rows, "admin_id", title, body, data, "admin_id")
+
+def notify_query_assignment(q: Query, previous_sales_id: int | None = None) -> int:
+    total_sent = 0
+    base_data = {"query_id": str(q.id), "name": q.name, "phone": q.phone_number}
+
+    # Normal assignment to a sales person.
+    if q.sales_id != 0:
+        total_sent += send_notification_to_sales_device(
+            q.sales_id,
+            'New Query Assigned',
+            f"{q.name} - {q.service_query[:30]}",
+            base_data,
         )
-        _fb_messaging.send(message)
-        return 1
-    except Exception as e:
-        print(f"FCM send error: {e}")
-        return 0
+    else:
+        # Assigned to admin sales bucket (sales_id=0): notify admin + admin-sales token.
+        total_sent += send_notification_to_admin_device(
+            q.admin_id,
+            'New Query in Admin Queue',
+            f"{q.name} - {q.service_query[:30]}",
+            base_data,
+        )
+        total_sent += send_notification_to_sales_device(
+            0,
+            'New Query in Admin Queue',
+            f"{q.name} - {q.service_query[:30]}",
+            base_data,
+        )
 
+    # Reassignment notifications.
+    if previous_sales_id is not None and previous_sales_id != q.sales_id:
+        if previous_sales_id != 0:
+            total_sent += send_notification_to_sales_device(
+                previous_sales_id,
+                'Query Reassigned',
+                f"Query #{q.id} moved to another assignee.",
+                {"query_id": str(q.id), "new_sales_id": str(q.sales_id)},
+            )
+        else:
+            total_sent += send_notification_to_admin_device(
+                q.admin_id,
+                'Query Reassigned From Admin Queue',
+                f"Query #{q.id} assigned to sales #{q.sales_id}.",
+                {"query_id": str(q.id), "new_sales_id": str(q.sales_id)},
+            )
 
-
+    return total_sent
 
 def send_new_query_notification_to_sales(sales_id: int, q: Query):
-    title = 'New Query Assigned'
-    body = f"{q.name} - {q.service_query[:30]}"
-    data = {"query_id": str(q.id), "name": q.name, "phone": q.phone_number}
-    return send_notification_to_sales_device(sales_id, title, body, data)
+    # Backward-compatible wrapper used across existing call-sites.
+    return notify_query_assignment(q)
 
 def assign_sales_rep_to_query(query_id):
     """
