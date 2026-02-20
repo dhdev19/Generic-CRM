@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Query Details - CRM System{% endblock %}
+{% block page_title %}Query Details{% endblock %}
+
+{% block content %}
+{% set wa_phone = (query.phone_number or '')|replace(' ', '')|replace('+', '')|replace('-', '') %}
+<style>
+    .mobile-query-actions .btn {
+        min-width: 52px;
+    }
+</style>
+
+<div class="modal fade" id="mobileQueryModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-user me-2"></i>{{ query.name }}</h5>
+                <button type="button" class="btn-close" aria-label="Close" onclick="closeMobileModal()"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex gap-2 mb-3 mobile-query-actions">
+                    <a class="btn btn-success" href="tel:{{ query.phone_number }}" title="Call">
+                        <i class="fas fa-phone"></i>
+                    </a>
+                    <a class="btn btn-success" href="https://wa.me/{{ wa_phone }}" target="_blank" title="WhatsApp">
+                        <i class="fab fa-whatsapp"></i>
+                    </a>
+                    {% if user_type == 'admin' %}
+                    <button class="btn btn-warning" type="button" data-bs-toggle="modal" data-bs-target="#assignSalesModal" title="Assign to Sales">
+                        <i class="fas fa-user-plus"></i>
+                    </button>
+                    {% endif %}
+                </div>
+
+                <div class="mb-2"><strong>Phone:</strong> {{ query.phone_number }}</div>
+                <div class="mb-2"><strong>Email:</strong> {{ query.mail_id }}</div>
+                <div class="mb-2"><strong>Source:</strong> {{ (query.source or 'reference')|title }}</div>
+                <div class="mb-2"><strong>Status:</strong> {{ (query.closure or 'pending')|title }}</div>
+                <div class="mb-2"><strong>Date:</strong> {{ query.date_of_enquiry.strftime('%d-%m-%Y %H:%M') if query.date_of_enquiry else '' }}</div>
+                <div class="mt-3">
+                    <strong>Service Query:</strong>
+                    <div class="border rounded p-2 bg-light mt-1" style="white-space: pre-wrap;">{{ query.service_query }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if user_type == 'admin' %}
+<div class="modal fade" id="assignSalesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-users me-2"></i>Assign to Sales</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-grid gap-2">
+                    {% for s in sales_persons %}
+                    <button class="btn btn-outline-primary text-start" onclick="assignToSales({{ query.id }}, {{ s.id }}, '{{ s.name|e }}')">
+                        <i class="fas fa-user me-2"></i>{{ s.name }}
+                    </button>
+                    {% endfor %}
+                    {% if not sales_persons %}
+                    <div class="text-muted small">No sales persons found.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+function closeMobileModal() {
+    {% if user_type == 'admin' %}
+    window.location.href = "{{ url_for('admin_dashboard') }}";
+    {% else %}
+    window.location.href = "{{ url_for('sales_dashboard') }}";
+    {% endif %}
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const modal = new bootstrap.Modal(document.getElementById('mobileQueryModal'));
+    modal.show();
+});
+
+function assignToSales(queryId, salesId, salesName) {
+    fetch("{{ url_for('update_query_sales') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query_id: queryId, sales_id: salesId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "success") {
+            alert("Assigned to " + salesName);
+            closeMobileModal();
+        } else {
+            alert(data.message || "Failed to assign.");
+        }
+    })
+    .catch(() => {
+        alert("Assignment failed.");
+    });
+}
+</script>
+{% endblock %}

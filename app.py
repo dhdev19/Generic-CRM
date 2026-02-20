@@ -76,6 +76,11 @@ def build_available_sources(items):
     dynamic_sources = {(item.source or '').strip() for item in items if (item.source or '').strip()}
     return sorted(set(SOURCE_OPTIONS).union(dynamic_sources))
 
+def is_mobile_request() -> bool:
+    ua = (request.headers.get('User-Agent') or '').lower()
+    mobile_markers = ('android', 'iphone', 'ipad', 'ipod', 'mobile', 'opera mini', 'iemobile')
+    return any(marker in ua for marker in mobile_markers)
+
 # Initialize Firebase Admin if JSON path provided
 if firebase_admin is not None:
     fcm_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
@@ -1618,20 +1623,34 @@ def add_followup():
 @app.route('/sales/edit-query/<int:id>', methods=['GET', 'POST'])
 @login_required
 def sales_edit_query(id):
-    # Allow admin users to open the same notification link and redirect
-    # to the admin edit page for the query.
-    if session.get('user_type') == 'admin' and isinstance(current_user, Admin):
-        query = Query.query.get_or_404(id)
+    user_type = session.get('user_type')
+    query = Query.query.get_or_404(id)
+
+    # Mobile-only quick-view modal for notification click flows.
+    if request.method == 'GET' and is_mobile_request():
+        if user_type == 'admin' and isinstance(current_user, Admin):
+            if query.admin_id != current_user.id:
+                flash('Access denied')
+                return redirect(url_for('admin_dashboard'))
+            sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
+            return render_template('mobile_query_modal.html', query=query, user_type='admin', sales_persons=sales_persons)
+        if user_type == 'sales' and isinstance(current_user, Sales):
+            if query.sales_id != current_user.id:
+                flash('Access denied')
+                return redirect(url_for('sales_dashboard'))
+            return render_template('mobile_query_modal.html', query=query, user_type='sales', sales_persons=[])
+
+    # Desktop/admin fallback: route admin users to admin edit page.
+    if user_type == 'admin' and isinstance(current_user, Admin):
         if query.admin_id != current_user.id:
             flash('Access denied')
             return redirect(url_for('admin_dashboard'))
         return redirect(url_for('edit_query', id=id))
 
-    if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
+    if user_type != 'sales' or not isinstance(current_user, Sales):
         flash('Access denied')
         return redirect(url_for('index'))
-    
-    query = Query.query.get_or_404(id)
+
     if query.sales_id != current_user.id:
         flash('Access denied')
         return redirect(url_for('sales_dashboard'))
