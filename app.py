@@ -56,6 +56,25 @@ app.config.from_object(config[config_name])
 # When False, queries are assigned to default sales (id=0)
 AUTO_ASSIGN = os.environ.get('AUTO_ASSIGN', 'false').lower() == 'true'
 
+# Standard lead sources used across forms and analytics.
+SOURCE_OPTIONS = [
+    'Gmb',
+    'justdial',
+    'facebook',
+    'website',
+    'reference',
+    'cold approach',
+    'youtube',
+    'meta_ads',
+    '99acres',
+    'magic bricks',
+    'housing',
+]
+
+def build_available_sources(items):
+    dynamic_sources = {(item.source or '').strip() for item in items if (item.source or '').strip()}
+    return sorted(set(SOURCE_OPTIONS).union(dynamic_sources))
+
 # Initialize Firebase Admin if JSON path provided
 if firebase_admin is not None:
     fcm_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
@@ -112,7 +131,7 @@ class Query(db.Model):
     service_query = db.Column(db.Text, nullable=False)
     mail_id = db.Column(db.String(120), nullable=False)
     # New source column and updated closure domain
-    source = db.Column(db.String(50), default='reference')  # Gmb, justdial, facebook, website, reference, cold approach, youtube, meta_ads
+    source = db.Column(db.String(50), default='reference')  # Gmb, justdial, facebook, website, reference, cold approach, youtube, meta_ads, 99acres, magic bricks, housing
     # Closures: Closed, Prospect, Positive, pending, call again, bad mei bataenge,
     # not intrested, wrong enquiry, invalid, switch off, not picked
     closure = db.Column(db.String(30), default='pending')
@@ -876,7 +895,7 @@ def add_query():
         return redirect(url_for('admin_dashboard'))
     
     sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
-    return render_template('add_query.html', sales_persons=sales_persons)
+    return render_template('add_query.html', sales_persons=sales_persons, source_options=SOURCE_OPTIONS)
 
 @app.route('/admin/edit-query/<int:id>', methods=['GET', 'POST'])
 @login_required
@@ -926,7 +945,7 @@ def edit_query(id):
         flash('Query updated successfully')
         return redirect(url_for('admin_dashboard'))
     
-    return render_template('edit_query.html', query=query, sales_persons=sales_persons)
+    return render_template('edit_query.html', query=query, sales_persons=sales_persons, source_options=SOURCE_OPTIONS)
 
 @app.route('/admin/remove-query/<int:id>')
 @login_required
@@ -1150,7 +1169,7 @@ def admin_analytics():
     # Available values
     all_q = q.all()
     available_years = sorted({row.date_of_enquiry.year for row in all_q})
-    available_sources = sorted({(row.source or '').strip() for row in all_q if (row.source or '').strip()})
+    available_sources = build_available_sources(all_q)
     closure_options = [
         'Closed',
         'Prospect',
@@ -1253,7 +1272,7 @@ def sales_dashboard():
     # Distinct years and sources for filter controls
     all_queries = base_query.all()
     available_years = sorted({q.date_of_enquiry.year for q in all_queries})
-    available_sources = sorted({(q.source or '').strip() for q in all_queries if (q.source or '').strip()})
+    available_sources = build_available_sources(all_queries)
     
     # Closure options
     closure_options = [
@@ -1427,7 +1446,7 @@ def sales_add_query():
         flash('Query added successfully')
         return redirect(url_for('sales_dashboard'))
     
-    return render_template('sales_add_query.html')
+    return render_template('sales_add_query.html', source_options=SOURCE_OPTIONS)
 
 @app.route('/sales/analytics')
 @login_required
@@ -1447,7 +1466,7 @@ def sales_analytics():
     # Available filter values
     all_for_user = q.all()
     available_years = sorted({item.date_of_enquiry.year for item in all_for_user})
-    available_sources = sorted({(item.source or '').strip() for item in all_for_user if (item.source or '').strip()})
+    available_sources = build_available_sources(all_for_user)
     closure_options = [
         'Closed',
         'Prospect',
@@ -1791,8 +1810,10 @@ def api_form_add():
         sales_id = 0
         
         # Normalize source to match exact values used in the system
-        # Google Form dropdown values: GMB, Justdial, Facebook, Website, Reference, Cold Approach, Youtube, Other
-        # System values: Gmb, justdial, facebook, website, reference, cold approach, youtube
+        # Google Form dropdown values: GMB, Justdial, Facebook, Website, Reference, Cold Approach,
+        # Youtube, Other, 99acres, Magic Bricks, Housing
+        # System values: Gmb, justdial, facebook, website, reference, cold approach, youtube,
+        # 99acres, magic bricks, housing
         def normalize_source(source_str):
             if not source_str:
                 return "cold approach"
@@ -1809,6 +1830,9 @@ def api_form_add():
                 "Reference": "reference",
                 "Cold Approach": "cold approach",
                 "Youtube": "youtube",
+                "99acres": "99acres",
+                "Magic Bricks": "magic bricks",
+                "Housing": "housing",
                 "Other": "cold approach",  # Other defaults to cold approach
                 # Common variations (case-insensitive)
                 "gmb": "Gmb",
@@ -1824,6 +1848,11 @@ def api_form_add():
                 "cold": "cold approach",
                 "youtube": "youtube",
                 "yt": "youtube",
+                "99 acres": "99acres",
+                "99acres": "99acres",
+                "magic bricks": "magic bricks",
+                "magicbricks": "magic bricks",
+                "housing": "housing",
                 "other": "cold approach",
             }
             # First try exact match, then try lowercase match

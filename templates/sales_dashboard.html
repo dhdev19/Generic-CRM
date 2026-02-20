@@ -300,7 +300,9 @@ function updateTodayReport() {
                             <select class="form-select form-select-sm" id="sourceFilter" name="source" onchange="this.form.submit()">
                                 <option value="">All Sources</option>
                                 {% for s in available_sources %}
-                                <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s|title }}</option>
+                                <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>
+                                    {{ 'GMB' if s == 'Gmb' else ('Meta Ads' if s == 'meta_ads' else ('99acres' if s == '99acres' else s|title)) }}
+                                </option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -497,7 +499,9 @@ function updateTodayReport() {
                     <select class="form-select form-select-sm" name="source" style="max-width: 180px;">
                         <option value="">All Sources</option>
                         {% for s in available_sources %}
-                        <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>
+                        <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>
+                            {{ 'GMB' if s == 'Gmb' else ('Meta Ads' if s == 'meta_ads' else ('99acres' if s == '99acres' else s|title)) }}
+                        </option>
                         {% endfor %}
                     </select>
                     <button class="btn btn-sm btn-primary" type="submit">Apply</button>

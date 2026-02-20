@@ -37,14 +37,11 @@
                     <div class="mb-3">
                         <label for="source" class="form-label">Source</label>
                         <select class="form-select" id="source" name="source" required>
-                            <option value="Gmb">Gmb</option>
-                            <option value="justdial">Justdial</option>
-                            <option value="facebook">Facebook</option>
-                            <option value="website">Website</option>
-                            <option value="reference">Reference</option>
-                            <option value="cold approach">Cold Approach</option>
-                            <option value="youtube">Youtube</option>
-                            <option value="meta_ads">Meta Ads</option>
+                            {% for s in source_options %}
+                            <option value="{{ s }}">
+                                {{ 'GMB' if s == 'Gmb' else ('Meta Ads' if s == 'meta_ads' else ('99acres' if s == '99acres' else s|title)) }}
+                            </option>
+                            {% endfor %}
                         </select>
                     </div>
 
