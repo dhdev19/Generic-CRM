@@ -2078,23 +2078,12 @@ def api_mobile_login():
     # Backward compatible: if device details are sent at login, upsert token.
     device_token = data.get("device_token")
     if device_token:
-        existing = DeviceToken.query.filter_by(device_token=device_token).first()
-        if existing:
-            existing.sales_id = user.id
-            existing.platform = data.get("platform")
-            existing.app_version = data.get("app_version")
-            existing.is_active = True
-            existing.last_seen_at = get_ist_now()
-        else:
-            rec = DeviceToken(
-                sales_id=user.id,
-                device_token=device_token,
-                platform=data.get("platform"),
-                app_version=data.get("app_version"),
-                is_active=True,
-                last_seen_at=get_ist_now(),
-            )
-            db.session.add(rec)
+        _upsert_device_token_for_sales(
+            sales_id=user.id,
+            fcm_token=str(device_token).strip(),
+            platform=(data.get("device_type") or data.get("platform") or "unknown"),
+            app_version=(data.get("app_version") or data.get("device_name") or ""),
+        )
 
     db.session.commit()
 
@@ -2117,40 +2106,44 @@ def _auth_sales_from_header():
     return None
 
 def _upsert_device_token_for_sales(sales_id: int, fcm_token: str, platform: str = "unknown", app_version: str = ""):
-    existing_device = DeviceToken.query.filter_by(
-        sales_id=sales_id,
-        device_token=fcm_token
-    ).first()
+    primary = DeviceToken.query.filter_by(sales_id=sales_id).order_by(DeviceToken.updated_at.desc(), DeviceToken.id.desc()).first()
+    token_row = DeviceToken.query.filter_by(device_token=fcm_token).first()
+    target = primary or token_row
 
-    if existing_device:
-        existing_device.last_seen_at = get_ist_now()
-        existing_device.is_active = True
+    if target is None:
+        target = DeviceToken(
+            sales_id=sales_id,
+            device_token=fcm_token,
+            platform=platform,
+            app_version=app_version,
+            is_active=True,
+            last_seen_at=get_ist_now(),
+        )
+        db.session.add(target)
+    else:
+        target.sales_id = sales_id
+        target.device_token = fcm_token
+        target.is_active = True
+        target.last_seen_at = get_ist_now()
         if platform:
-            existing_device.platform = platform
+            target.platform = platform
         if app_version:
-            existing_device.app_version = app_version
-        return existing_device
+            target.app_version = app_version
 
-    token_exists = DeviceToken.query.filter_by(device_token=fcm_token).first()
-    if token_exists:
-        # Reassign token if device was associated to another user.
-        token_exists.sales_id = sales_id
-        token_exists.platform = platform
-        token_exists.app_version = app_version
-        token_exists.is_active = True
-        token_exists.last_seen_at = get_ist_now()
-        return token_exists
-
-    rec = DeviceToken(
-        sales_id=sales_id,
-        device_token=fcm_token,
-        platform=platform,
-        app_version=app_version,
-        is_active=True,
-        last_seen_at=get_ist_now(),
-    )
-    db.session.add(rec)
-    return rec
+    # Enforce one token row per sales user by deleting all extra rows.
+    extra_rows = DeviceToken.query.filter(
+        DeviceToken.sales_id == sales_id,
+        DeviceToken.id != target.id
+    ).all()
+    for row in extra_rows:
+        db.session.delete(row)
+    duplicate_token_rows = DeviceToken.query.filter(
+        DeviceToken.device_token == fcm_token,
+        DeviceToken.id != target.id
+    ).all()
+    for row in duplicate_token_rows:
+        db.session.delete(row)
+    return target
 
 def _serialize_sales_devices(sales_id: int):
     devices = DeviceToken.query.filter_by(sales_id=sales_id).order_by(DeviceToken.updated_at.desc()).all()
@@ -2164,39 +2157,44 @@ def _serialize_sales_devices(sales_id: int):
     } for d in devices]
 
 def _upsert_device_token_for_admin(admin_id: int, fcm_token: str, platform: str = "unknown", app_version: str = ""):
-    existing_device = AdminDeviceToken.query.filter_by(
-        admin_id=admin_id,
-        device_token=fcm_token
-    ).first()
+    primary = AdminDeviceToken.query.filter_by(admin_id=admin_id).order_by(AdminDeviceToken.updated_at.desc(), AdminDeviceToken.id.desc()).first()
+    token_row = AdminDeviceToken.query.filter_by(device_token=fcm_token).first()
+    target = primary or token_row
 
-    if existing_device:
-        existing_device.last_seen_at = get_ist_now()
-        existing_device.is_active = True
+    if target is None:
+        target = AdminDeviceToken(
+            admin_id=admin_id,
+            device_token=fcm_token,
+            platform=platform,
+            app_version=app_version,
+            is_active=True,
+            last_seen_at=get_ist_now(),
+        )
+        db.session.add(target)
+    else:
+        target.admin_id = admin_id
+        target.device_token = fcm_token
+        target.is_active = True
+        target.last_seen_at = get_ist_now()
         if platform:
-            existing_device.platform = platform
+            target.platform = platform
         if app_version:
-            existing_device.app_version = app_version
-        return existing_device
+            target.app_version = app_version
 
-    token_exists = AdminDeviceToken.query.filter_by(device_token=fcm_token).first()
-    if token_exists:
-        token_exists.admin_id = admin_id
-        token_exists.platform = platform
-        token_exists.app_version = app_version
-        token_exists.is_active = True
-        token_exists.last_seen_at = get_ist_now()
-        return token_exists
-
-    rec = AdminDeviceToken(
-        admin_id=admin_id,
-        device_token=fcm_token,
-        platform=platform,
-        app_version=app_version,
-        is_active=True,
-        last_seen_at=get_ist_now(),
-    )
-    db.session.add(rec)
-    return rec
+    # Enforce one token row per admin user by deleting all extra rows.
+    extra_rows = AdminDeviceToken.query.filter(
+        AdminDeviceToken.admin_id == admin_id,
+        AdminDeviceToken.id != target.id
+    ).all()
+    for row in extra_rows:
+        db.session.delete(row)
+    duplicate_token_rows = AdminDeviceToken.query.filter(
+        AdminDeviceToken.device_token == fcm_token,
+        AdminDeviceToken.id != target.id
+    ).all()
+    for row in duplicate_token_rows:
+        db.session.delete(row)
+    return target
 
 def _serialize_admin_devices(admin_id: int):
     devices = AdminDeviceToken.query.filter_by(admin_id=admin_id).order_by(AdminDeviceToken.updated_at.desc()).all()
