@@ -1791,7 +1791,7 @@ def api_website_lead():
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-def _create_webhook_fixed_lead(source: str):
+def _create_webhook_fixed_lead(source: str, admin_id: int):
     """
     Create a webhook lead with fixed values as requested:
     sales_id=0, date_of_enquiry=now, closure='pending',
@@ -1802,7 +1802,6 @@ def _create_webhook_fixed_lead(source: str):
             return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
 
         payload = request.get_json() or {}
-        admin_id = 3
         sales_id = 0
         date_of_enquiry = get_ist_now()
 
@@ -1851,17 +1850,20 @@ def _create_webhook_fixed_lead(source: str):
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/webhook/magic-bricks/<int:admin_id>", methods=["POST"])
 @app.route("/api/webhook/magic-bricks", methods=["POST"])
-def api_webhook_magic_bricks():
-    return _create_webhook_fixed_lead("magic bricks")
+def api_webhook_magic_bricks(admin_id=3):
+    return _create_webhook_fixed_lead("magic bricks", int(admin_id))
 
+@app.route("/api/webhook/99acres/<int:admin_id>", methods=["POST"])
 @app.route("/api/webhook/99acres", methods=["POST"])
-def api_webhook_99acres():
-    return _create_webhook_fixed_lead("99acres")
+def api_webhook_99acres(admin_id=3):
+    return _create_webhook_fixed_lead("99acres", int(admin_id))
 
+@app.route("/api/webhook/housing/<int:admin_id>", methods=["POST"])
 @app.route("/api/webhook/housing", methods=["POST"])
-def api_webhook_housing():
-    return _create_webhook_fixed_lead("housing")
+def api_webhook_housing(admin_id=3):
+    return _create_webhook_fixed_lead("housing", int(admin_id))
 
 # API endpoint for Google Forms submissions
 @app.route("/api/formAdd", methods=["POST"])
