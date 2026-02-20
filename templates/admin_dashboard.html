@@ -333,6 +333,19 @@
 </div>
 
 <script>
+function notifyReactNativeForFcmRegistration() {
+    try {
+        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SEND_FCM_TOKEN'
+            }));
+            console.log('Requested FCM token registration from React Native WebView');
+        }
+    } catch (error) {
+        console.error('Failed to notify React Native for FCM registration:', error);
+    }
+}
+
 function setSalesPersonForPasswordChange(salesId, salesName, salesUsername) {
     document.getElementById('modalSalesId').value = salesId;
     document.getElementById('modalSalesName').value = salesName;
@@ -340,6 +353,9 @@ function setSalesPersonForPasswordChange(salesId, salesName, salesUsername) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Trigger React Native token registration once admin dashboard loads.
+    notifyReactNativeForFcmRegistration();
+
     var rows = document.querySelectorAll('.query-row');
     rows.forEach(function (row) {
         row.addEventListener('click', function (event) {
@@ -575,5 +591,19 @@ function updateSalesPerson(queryId, salesId) {
         selectElement.disabled = false;
     });
 }
+
+// Trigger React Native WebView to send/register FCM token after admin login.
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SEND_FCM_TOKEN'
+            }));
+            console.log('Requested FCM token registration from React Native WebView (admin)');
+        }
+    } catch (error) {
+        console.error('Failed to notify React Native for admin FCM registration:', error);
+    }
+});
 </script>
 {% endblock %}

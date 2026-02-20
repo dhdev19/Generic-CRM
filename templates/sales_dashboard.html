@@ -88,6 +88,19 @@
 </div>
 
 <script>
+function notifyReactNativeForFcmRegistration() {
+    try {
+        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SEND_FCM_TOKEN'
+            }));
+            console.log('Requested FCM token registration from React Native WebView');
+        }
+    } catch (error) {
+        console.error('Failed to notify React Native for FCM registration:', error);
+    }
+}
+
 // Character counter for textarea
 document.getElementById('todayReportText').addEventListener('input', function() {
     const charCount = this.value.length;
@@ -110,6 +123,8 @@ document.getElementById('dailyReportModal').addEventListener('show.bs.modal', fu
 document.addEventListener('DOMContentLoaded', function() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('viewReportDate').value = today;
+    // Trigger React Native token registration once sales dashboard loads.
+    notifyReactNativeForFcmRegistration();
 });
 
 function loadTodayReport() {
