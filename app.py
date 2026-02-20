@@ -1618,6 +1618,15 @@ def add_followup():
 @app.route('/sales/edit-query/<int:id>', methods=['GET', 'POST'])
 @login_required
 def sales_edit_query(id):
+    # Allow admin users to open the same notification link and redirect
+    # to the admin edit page for the query.
+    if session.get('user_type') == 'admin' and isinstance(current_user, Admin):
+        query = Query.query.get_or_404(id)
+        if query.admin_id != current_user.id:
+            flash('Access denied')
+            return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('edit_query', id=id))
+
     if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
         flash('Access denied')
         return redirect(url_for('index'))
