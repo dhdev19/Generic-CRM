@@ -305,7 +305,12 @@ def login():
 @login_required
 def logout():
     logout_user()
-    session.clear()
+    # Do not call session.clear() after logout_user().
+    # logout_user() sets internal remember-cookie clear markers in session;
+    # clearing the whole session here can remove those markers and cause re-login.
+    session.pop('user_type', None)
+    session.pop('user_id', None)
+    session.modified = True
     return redirect(url_for('index'))
 
 
