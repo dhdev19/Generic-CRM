@@ -4,6 +4,7 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, timedelta
 import os
+import json
 from io import BytesIO
 import tempfile
 import subprocess
@@ -1789,6 +1790,78 @@ def api_website_lead():
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+def _create_webhook_fixed_lead(source: str):
+    """
+    Create a webhook lead with fixed values as requested:
+    sales_id=0, date_of_enquiry=now, closure='pending',
+    name/phone/mail fixed, and service_query as received JSON payload.
+    """
+    try:
+        if not request.is_json:
+            return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
+
+        payload = request.get_json() or {}
+        admin_id = 3
+        sales_id = 0
+        date_of_enquiry = get_ist_now()
+
+        admin_user = db.session.get(Admin, admin_id)
+        if not admin_user:
+            return jsonify({"status": "error", "message": "Admin not found"}), 404
+
+        sales_user = db.session.get(Sales, sales_id)
+        if not sales_user:
+            return jsonify({"status": "error", "message": "Sales user not found"}), 404
+
+        query = Query(
+            sales_id=sales_id,
+            admin_id=admin_id,
+            name="John Doe",
+            phone_number="987654321",
+            service_query=json.dumps(payload, default=str),
+            mail_id="johndoe@example.com",
+            source=source,
+            closure="pending",
+            date_of_enquiry=date_of_enquiry
+        )
+
+        db.session.add(query)
+        db.session.commit()
+
+        # Reassign from default sales to actual sales person (if enabled).
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                db.session.refresh(query)
+            except Exception:
+                pass
+
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+        except Exception:
+            pass
+
+        return jsonify({
+            "status": "success",
+            "message": "Lead submitted successfully",
+            "query_id": query.id
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/webhook/magic-bricks", methods=["POST"])
+def api_webhook_magic_bricks():
+    return _create_webhook_fixed_lead("magic bricks")
+
+@app.route("/api/webhook/99acres", methods=["POST"])
+def api_webhook_99acres():
+    return _create_webhook_fixed_lead("99acres")
+
+@app.route("/api/webhook/housing", methods=["POST"])
+def api_webhook_housing():
+    return _create_webhook_fixed_lead("housing")
 
 # API endpoint for Google Forms submissions
 @app.route("/api/formAdd", methods=["POST"])
