@@ -592,18 +592,5 @@ function updateSalesPerson(queryId, salesId) {
     });
 }
 
-// Trigger React Native WebView to send/register FCM token after admin login.
-document.addEventListener('DOMContentLoaded', function() {
-    try {
-        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'SEND_FCM_TOKEN'
-            }));
-            console.log('Requested FCM token registration from React Native WebView (admin)');
-        }
-    } catch (error) {
-        console.error('Failed to notify React Native for admin FCM registration:', error);
-    }
-});
 </script>
 {% endblock %}
