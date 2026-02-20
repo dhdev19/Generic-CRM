@@ -78,7 +78,7 @@ def build_available_sources(items):
 
 def is_mobile_request() -> bool:
     ua = (request.headers.get('User-Agent') or '').lower()
-    mobile_markers = ('android', 'iphone', 'ipad', 'ipod', 'mobile', 'opera mini', 'iemobile')
+    mobile_markers = ('android', 'iphone', 'ipad', 'ipod', 'mobile', 'opera mini', 'iemobile', 'wv')
     return any(marker in ua for marker in mobile_markers)
 
 # Initialize Firebase Admin if JSON path provided
@@ -203,6 +203,27 @@ def load_user(user_id):
     # Fallback (very unlikely needed, but keeps backward compatibility)
     user = db.session.get(SuperAdmin, uid) or db.session.get(Admin, uid) or db.session.get(Sales, uid)
     return user
+
+@app.before_request
+def restore_session_user_type_for_authenticated_user():
+    """
+    When opening deep links (e.g. from push notifications), requests may not
+    pass through index/login first. Ensure session user_type is present so role
+    checks don't redirect away from the intended page.
+    """
+    if not current_user.is_authenticated:
+        return
+    if session.get('user_type'):
+        return
+
+    if isinstance(current_user, SuperAdmin):
+        session['user_type'] = 'super_admin'
+    elif isinstance(current_user, Admin):
+        session['user_type'] = 'admin'
+    elif isinstance(current_user, Sales):
+        session['user_type'] = 'sales'
+    session['user_id'] = current_user.id
+    session.modified = True
 
 # Routes
 @app.route('/')
