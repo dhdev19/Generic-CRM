@@ -207,6 +207,26 @@ def load_user(user_id):
 # Routes
 @app.route('/')
 def index():
+    if current_user.is_authenticated:
+        user_type = session.get('user_type')
+        if not user_type:
+            if isinstance(current_user, SuperAdmin):
+                user_type = 'super_admin'
+            elif isinstance(current_user, Admin):
+                user_type = 'admin'
+            elif isinstance(current_user, Sales):
+                user_type = 'sales'
+            if user_type:
+                session['user_type'] = user_type
+                session['user_id'] = current_user.id
+                session.modified = True
+
+        if user_type == 'super_admin':
+            return redirect(url_for('super_admin_dashboard'))
+        if user_type == 'admin':
+            return redirect(url_for('admin_dashboard'))
+        if user_type == 'sales':
+            return redirect(url_for('sales_dashboard'))
     return render_template('index.html')
 
 @app.route('/debug-session')
@@ -223,6 +243,27 @@ def debug_session():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'GET' and current_user.is_authenticated:
+        user_type = session.get('user_type')
+        if not user_type:
+            if isinstance(current_user, SuperAdmin):
+                user_type = 'super_admin'
+            elif isinstance(current_user, Admin):
+                user_type = 'admin'
+            elif isinstance(current_user, Sales):
+                user_type = 'sales'
+            if user_type:
+                session['user_type'] = user_type
+                session['user_id'] = current_user.id
+                session.modified = True
+
+        if user_type == 'super_admin':
+            return redirect(url_for('super_admin_dashboard'))
+        if user_type == 'admin':
+            return redirect(url_for('admin_dashboard'))
+        if user_type == 'sales':
+            return redirect(url_for('sales_dashboard'))
+
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
