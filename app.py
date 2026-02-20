@@ -2180,22 +2180,8 @@ def _auth_sales_from_header():
     return None
 
 def _upsert_device_token_for_sales(sales_id: int, fcm_token: str, platform: str = "unknown", app_version: str = ""):
-    primary = DeviceToken.query.filter_by(sales_id=sales_id).order_by(DeviceToken.updated_at.desc(), DeviceToken.id.desc()).first()
-    token_row = DeviceToken.query.filter_by(device_token=fcm_token).first()
-    target = primary or token_row
-
-    if target is None:
-        target = DeviceToken(
-            sales_id=sales_id,
-            device_token=fcm_token,
-            platform=platform,
-            app_version=app_version,
-            is_active=True,
-            last_seen_at=get_ist_now(),
-        )
-        db.session.add(target)
-    else:
-        target.sales_id = sales_id
+    target = DeviceToken.query.filter_by(sales_id=sales_id).first()
+    if target:
         target.device_token = fcm_token
         target.is_active = True
         target.last_seen_at = get_ist_now()
@@ -2203,20 +2189,17 @@ def _upsert_device_token_for_sales(sales_id: int, fcm_token: str, platform: str 
             target.platform = platform
         if app_version:
             target.app_version = app_version
+        return target
 
-    # Enforce one token row per sales user by deleting all extra rows.
-    extra_rows = DeviceToken.query.filter(
-        DeviceToken.sales_id == sales_id,
-        DeviceToken.id != target.id
-    ).all()
-    for row in extra_rows:
-        db.session.delete(row)
-    duplicate_token_rows = DeviceToken.query.filter(
-        DeviceToken.device_token == fcm_token,
-        DeviceToken.id != target.id
-    ).all()
-    for row in duplicate_token_rows:
-        db.session.delete(row)
+    target = DeviceToken(
+        sales_id=sales_id,
+        device_token=fcm_token,
+        platform=platform,
+        app_version=app_version,
+        is_active=True,
+        last_seen_at=get_ist_now(),
+    )
+    db.session.add(target)
     return target
 
 def _serialize_sales_devices(sales_id: int):
@@ -2231,22 +2214,8 @@ def _serialize_sales_devices(sales_id: int):
     } for d in devices]
 
 def _upsert_device_token_for_admin(admin_id: int, fcm_token: str, platform: str = "unknown", app_version: str = ""):
-    primary = AdminDeviceToken.query.filter_by(admin_id=admin_id).order_by(AdminDeviceToken.updated_at.desc(), AdminDeviceToken.id.desc()).first()
-    token_row = AdminDeviceToken.query.filter_by(device_token=fcm_token).first()
-    target = primary or token_row
-
-    if target is None:
-        target = AdminDeviceToken(
-            admin_id=admin_id,
-            device_token=fcm_token,
-            platform=platform,
-            app_version=app_version,
-            is_active=True,
-            last_seen_at=get_ist_now(),
-        )
-        db.session.add(target)
-    else:
-        target.admin_id = admin_id
+    target = AdminDeviceToken.query.filter_by(admin_id=admin_id).first()
+    if target:
         target.device_token = fcm_token
         target.is_active = True
         target.last_seen_at = get_ist_now()
@@ -2254,20 +2223,17 @@ def _upsert_device_token_for_admin(admin_id: int, fcm_token: str, platform: str 
             target.platform = platform
         if app_version:
             target.app_version = app_version
+        return target
 
-    # Enforce one token row per admin user by deleting all extra rows.
-    extra_rows = AdminDeviceToken.query.filter(
-        AdminDeviceToken.admin_id == admin_id,
-        AdminDeviceToken.id != target.id
-    ).all()
-    for row in extra_rows:
-        db.session.delete(row)
-    duplicate_token_rows = AdminDeviceToken.query.filter(
-        AdminDeviceToken.device_token == fcm_token,
-        AdminDeviceToken.id != target.id
-    ).all()
-    for row in duplicate_token_rows:
-        db.session.delete(row)
+    target = AdminDeviceToken(
+        admin_id=admin_id,
+        device_token=fcm_token,
+        platform=platform,
+        app_version=app_version,
+        is_active=True,
+        last_seen_at=get_ist_now(),
+    )
+    db.session.add(target)
     return target
 
 def _serialize_admin_devices(admin_id: int):
