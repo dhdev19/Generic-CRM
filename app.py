@@ -1976,7 +1976,7 @@ def api_mobile_login():
         return jsonify({"status":"error","message":"Content-Type must be application/json"}), 400
 
     data = request.get_json() or {}
-    err = _require_json_fields(data, ["username", "password", "device_token", "platform", "app_version"])
+    err = _require_json_fields(data, ["username", "password"])
     if err:
         return jsonify({"status":"error","message":err}), 400
 
@@ -1987,26 +1987,26 @@ def api_mobile_login():
     # Issue a simple bearer token (DB-less). In production, use JWT.
     token = _generate_mobile_token(user)
 
-    # Check if a device token already exists for this sales_id
-    existing = DeviceToken.query.filter_by(sales_id=user.id).first()
-    if existing:
-        # Update the existing row
-        existing.device_token = data["device_token"]
-        existing.platform = data.get("platform")
-        existing.app_version = data.get("app_version")
-        existing.is_active = True
-        existing.last_seen_at = get_ist_now()
-    else:
-        # Insert new row
-        rec = DeviceToken(
-            sales_id=user.id,
-            device_token=data["device_token"],
-            platform=data.get("platform"),
-            app_version=data.get("app_version"),
-            is_active=True,
-            last_seen_at=get_ist_now(),
-        )
-        db.session.add(rec)
+    # Backward compatible: if device details are sent at login, upsert token.
+    device_token = data.get("device_token")
+    if device_token:
+        existing = DeviceToken.query.filter_by(device_token=device_token).first()
+        if existing:
+            existing.sales_id = user.id
+            existing.platform = data.get("platform")
+            existing.app_version = data.get("app_version")
+            existing.is_active = True
+            existing.last_seen_at = get_ist_now()
+        else:
+            rec = DeviceToken(
+                sales_id=user.id,
+                device_token=device_token,
+                platform=data.get("platform"),
+                app_version=data.get("app_version"),
+                is_active=True,
+                last_seen_at=get_ist_now(),
+            )
+            db.session.add(rec)
 
     db.session.commit()
 
@@ -2027,6 +2027,186 @@ def _auth_sales_from_header():
     except Exception:
         return None
     return None
+
+def _upsert_device_token_for_sales(sales_id: int, fcm_token: str, platform: str = "unknown", app_version: str = ""):
+    existing_device = DeviceToken.query.filter_by(
+        sales_id=sales_id,
+        device_token=fcm_token
+    ).first()
+
+    if existing_device:
+        existing_device.last_seen_at = get_ist_now()
+        existing_device.is_active = True
+        if platform:
+            existing_device.platform = platform
+        if app_version:
+            existing_device.app_version = app_version
+        return existing_device
+
+    token_exists = DeviceToken.query.filter_by(device_token=fcm_token).first()
+    if token_exists:
+        # Reassign token if device was associated to another user.
+        token_exists.sales_id = sales_id
+        token_exists.platform = platform
+        token_exists.app_version = app_version
+        token_exists.is_active = True
+        token_exists.last_seen_at = get_ist_now()
+        return token_exists
+
+    rec = DeviceToken(
+        sales_id=sales_id,
+        device_token=fcm_token,
+        platform=platform,
+        app_version=app_version,
+        is_active=True,
+        last_seen_at=get_ist_now(),
+    )
+    db.session.add(rec)
+    return rec
+
+def _serialize_sales_devices(sales_id: int):
+    devices = DeviceToken.query.filter_by(sales_id=sales_id).order_by(DeviceToken.updated_at.desc()).all()
+    return [{
+        "id": d.id,
+        "device_type": d.platform,
+        "device_name": d.app_version,
+        "is_active": d.is_active,
+        "last_active": d.last_seen_at.isoformat() if d.last_seen_at else None,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+    } for d in devices]
+
+@app.route('/api/mobile/register-token', methods=['POST'])
+def api_mobile_register_token():
+    """Register or update an FCM token for the authenticated sales user."""
+    sales_user = _auth_sales_from_header()
+    if not sales_user:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not request.is_json:
+        return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    fcm_token = (data.get("fcm_token") or data.get("device_token") or "").strip()
+    platform = (data.get("device_type") or data.get("platform") or "unknown").strip()
+    app_version = (data.get("app_version") or data.get("device_name") or "").strip()
+
+    if not fcm_token:
+        return jsonify({"status": "error", "message": "FCM token is required"}), 400
+
+    try:
+        _upsert_device_token_for_sales(
+            sales_id=sales_user.id,
+            fcm_token=fcm_token,
+            platform=platform,
+            app_version=app_version,
+        )
+
+        db.session.commit()
+        return jsonify({"status": "success", "message": "FCM token registered successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/mobile/remove-token', methods=['POST'])
+def api_mobile_remove_token():
+    """Remove one or all FCM tokens for the authenticated sales user."""
+    sales_user = _auth_sales_from_header()
+    if not sales_user:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not request.is_json:
+        return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    fcm_token = (data.get("fcm_token") or data.get("device_token") or "").strip()
+
+    try:
+        if fcm_token:
+            rec = DeviceToken.query.filter_by(sales_id=sales_user.id, device_token=fcm_token).first()
+            if rec:
+                db.session.delete(rec)
+        else:
+            DeviceToken.query.filter_by(sales_id=sales_user.id).delete()
+
+        db.session.commit()
+        return jsonify({"status": "success", "message": "FCM token(s) removed successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/mobile/devices', methods=['GET'])
+def api_mobile_devices():
+    """List FCM device rows for the authenticated sales user."""
+    sales_user = _auth_sales_from_header()
+    if not sales_user:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    try:
+        result = _serialize_sales_devices(sales_user.id)
+        return jsonify({"status": "success", "devices": result}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# WebView/session-authenticated FCM endpoints
+@app.route('/api/webview/register-token', methods=['POST'])
+@login_required
+def api_webview_register_token():
+    if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+    if not request.is_json:
+        return jsonify({"success": False, "message": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    fcm_token = (data.get("fcm_token") or data.get("device_token") or "").strip()
+    platform = (data.get("device_type") or data.get("platform") or "webview").strip()
+    app_version = (data.get("app_version") or data.get("device_name") or "").strip()
+
+    if not fcm_token:
+        return jsonify({"success": False, "message": "FCM token is required"}), 400
+
+    try:
+        _upsert_device_token_for_sales(
+            sales_id=current_user.id,
+            fcm_token=fcm_token,
+            platform=platform,
+            app_version=app_version,
+        )
+        db.session.commit()
+        return jsonify({"success": True, "message": "FCM token registered successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/webview/remove-token', methods=['POST'])
+@login_required
+def api_webview_remove_token():
+    if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+    if not request.is_json:
+        return jsonify({"success": False, "message": "Content-Type must be application/json"}), 400
+
+    data = request.get_json() or {}
+    fcm_token = (data.get("fcm_token") or data.get("device_token") or "").strip()
+
+    try:
+        if fcm_token:
+            rec = DeviceToken.query.filter_by(sales_id=current_user.id, device_token=fcm_token).first()
+            if rec:
+                db.session.delete(rec)
+        else:
+            DeviceToken.query.filter_by(sales_id=current_user.id).delete()
+        db.session.commit()
+        return jsonify({"success": True, "message": "FCM token(s) removed successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/webview/devices', methods=['GET'])
+@login_required
+def api_webview_devices():
+    if session.get('user_type') != 'sales' or not isinstance(current_user, Sales):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+    try:
+        return jsonify({"success": True, "devices": _serialize_sales_devices(current_user.id)}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/api/mobile/queries', methods=['GET'])
 def api_mobile_queries():
