@@ -278,7 +278,7 @@ def login():
             user = Sales.query.filter_by(username=username).first()
         
         if user and check_password_hash(user.password_hash, password):
-            login_user(user)
+            login_user(user, remember=True)
             session['user_type'] = user_type
             session['user_id'] = user.id
             
