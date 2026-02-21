@@ -6,6 +6,8 @@ load_dotenv()
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-here'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Base URL for integration docs (e.g. https://xyz.crm.com). No trailing slash. Falls back to request host if unset.
+    BASE_URL = (os.environ.get('BASE_URL') or os.environ.get('SITE_URL') or '').rstrip('/')
 
 class DevelopmentConfig(Config):
     DEBUG = True

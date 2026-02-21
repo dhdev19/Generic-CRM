@@ -36,7 +36,18 @@
    FLASK_ENV=development
    SECRET_KEY=your-secret-key-here
    DATABASE_URL=sqlite:///crm.db
+   # Optional: base URL for Integrations page copy buttons (e.g. https://xyz.crm.com). No trailing slash.
+   # BASE_URL=https://your-domain.com
    ```
+
+## Optional: Add integration_slug column (existing databases)
+
+If you already have an `admin` table and are upgrading, add the integration key column so integration endpoints can use non-guessable URLs:
+
+- **MySQL:** `ALTER TABLE admin ADD COLUMN integration_slug VARCHAR(24) UNIQUE NULL DEFAULT NULL;`
+- **SQLite:** `ALTER TABLE admin ADD COLUMN integration_slug VARCHAR(24);` (then create a unique index if desired)
+
+Existing admins get a slug automatically the first time they open **Admin → Integrations**. New admins get a slug when they are created.
 
 ## Step 3: Test Database Connection Locally
 

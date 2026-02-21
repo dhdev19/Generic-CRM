@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Integrations - Admin - CRM System{% endblock %}
+{% block page_title %}Integrations{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <p class="text-muted mb-1">
+        Use your <strong>integration key</strong> in the URLs below (not your admin number). Key: <code id="integrationSlug">{{ integration_slug }}</code>
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-2 py-0" onclick="copyText('integrationSlug', this)" title="Copy integration key">
+            <i class="fas fa-copy"></i> Copy
+        </button>
+    </p>
+    {% if base_url %}
+    <p class="text-muted small mb-0">
+        Base URL: <code id="baseUrlDisplay">{{ base_url }}</code>
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-2 py-0" onclick="copyText('baseUrlDisplay', this)" title="Copy base URL">
+            <i class="fas fa-copy"></i> Copy
+        </button>
+    </p>
+    {% else %}
+    <p class="text-muted small mb-0">
+        Set <code>BASE_URL</code> or <code>SITE_URL</code> in your <code>.env</code> (e.g. <code>https://xyz.crm.com</code>) to see full URLs.
+    </p>
+    {% endif %}
+</div>
+
+{% for ep in endpoints %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
+        <h5 class="mb-0">{{ ep.name }}</h5>
+        <span class="badge bg-primary">{{ ep.method }}</span>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">{{ ep.description }}</p>
+
+        <div class="mb-3">
+            <label class="form-label small fw-bold">Endpoint URL</label>
+            <div class="input-group">
+                <input type="text" class="form-control font-monospace small" id="url-{{ loop.index }}" value="{{ ep.full_url }}" readonly>
+                <button type="button" class="btn btn-outline-primary" onclick="copyInput('url-{{ loop.index }}', this)" title="Copy URL">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label small fw-bold">Sample request (JSON)</label>
+                <div class="position-relative">
+                    <pre class="bg-light border rounded p-3 small mb-0" style="max-height: 220px; overflow: auto;" id="req-{{ loop.index }}">{{ ep.sample_request_json }}</pre>
+                    <button type="button" class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2" onclick="copyPre('req-{{ loop.index }}', this)" title="Copy request">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label small fw-bold">Sample response (JSON)</label>
+                <div class="position-relative">
+                    <pre class="bg-light border rounded p-3 small mb-0" style="max-height: 220px; overflow: auto;" id="res-{{ loop.index }}">{{ ep.sample_response_json }}</pre>
+                    <button type="button" class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2" onclick="copyPre('res-{{ loop.index }}', this)" title="Copy response">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <p class="small text-muted mb-0">
+            Send <code>Content-Type: application/json</code> with the request body.
+        </p>
+    </div>
+</div>
+{% endfor %}
+
+<div class="card border-info">
+    <div class="card-body">
+        <h6 class="card-title text-info"><i class="fas fa-lightbulb me-1"></i> Tips</h6>
+        <ul class="small mb-0">
+            <li>Set <code>BASE_URL</code> or <code>SITE_URL</code> in <code>.env</code> (no trailing slash) so copied URLs use your real domain.</li>
+            <li>Webhooks accept any JSON; required lead fields use defaults. Website and Form endpoints require <code>name</code>, <code>phone_number</code>, <code>service_query</code>, and <code>mail_id</code> (optional for Form).</li>
+            <li>For full API details see <code>ENDPOINTS.md</code> in the project.</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+function copyInput(inputId, btn) {
+    var el = document.getElementById(inputId);
+    if (!el) return;
+    el.select();
+    el.setSelectionRange(0, 99999);
+    navigator.clipboard.writeText(el.value).then(function() {
+        showCopied(btn);
+    });
+}
+
+function copyPre(preId, btn) {
+    var el = document.getElementById(preId);
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent).then(function() {
+        showCopied(btn);
+    });
+}
+
+function copyText(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent).then(function() {
+        showCopied(btn);
+    });
+}
+
+function showCopied(btn) {
+    var icon = btn.querySelector('i');
+    var origClass = icon.className;
+    icon.className = 'fas fa-check';
+    btn.classList.add('btn-success');
+    btn.classList.remove('btn-outline-primary', 'btn-outline-secondary');
+    setTimeout(function() {
+        icon.className = origClass;
+        btn.classList.remove('btn-success');
+        btn.classList.add(btn.classList.contains('btn-sm') ? 'btn-outline-secondary' : 'btn-outline-primary');
+    }, 1500);
+}
+</script>
+{% endblock %}

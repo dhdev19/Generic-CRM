@@ -1,4 +1,8 @@
 # Environment variables
+venv
+env
+__pycache__
+htmlcov
 .env
 .env.local
 .env.*.local
@@ -37,7 +41,8 @@ venv.bak/
 *.db
 *.sqlite
 *.sqlite3
-
+.coveragerc
+serviceAccountKey.json
 # IDE
 .vscode/
 .idea/

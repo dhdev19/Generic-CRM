@@ -5,29 +5,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, timedelta
 import os
 import json
-from io import BytesIO
-import tempfile
-import subprocess
-import shutil
+import secrets
+import string
 from config import config
-
-# Optional: proposal/invoice generation (docxtpl, docx2pdf)
-try:
-    from docxtpl import DocxTemplate, RichText
-    DOCXTPL_AVAILABLE = True
-except ImportError:
-    DocxTemplate = None
-    RichText = None
-    DOCXTPL_AVAILABLE = False
-try:
-    import pythoncom
-    from docx2pdf import convert as docx2pdf_convert
-    DOCX2PDF_AVAILABLE = True
-except ImportError:
-    DOCX2PDF_AVAILABLE = False
-    pythoncom = None
 import pymysql
 from sqlalchemy import desc, or_
+from sqlalchemy.exc import IntegrityError
 
 # IST timezone (GMT+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -54,8 +37,57 @@ app.config.from_object(config[config_name])
 
 # Auto-assignment configuration
 # Set AUTO_ASSIGN=True in environment variable or config to enable automatic sales rep assignment
-# When False, queries are assigned to default sales (id=0)
+# When False, queries are assigned to admin's bucket sales (admin_sales_id from DB, or 0 if not set)
 AUTO_ASSIGN = os.environ.get('AUTO_ASSIGN', 'false').lower() == 'true'
+
+
+def get_admin_sales_id(admin_id: int) -> int:
+    """Return the Sales id used as the admin's unassigned-query bucket. Falls back to 0 if not set."""
+    admin = Admin.query.get(admin_id)
+    if not admin or admin.admin_sales_id is None:
+        return 0
+    return admin.admin_sales_id
+
+
+def _generate_integration_slug() -> str:
+    """Return a new unique 12-char alphanumeric slug for integration URLs. Always checks DB for uniqueness."""
+    alphabet = string.ascii_letters + string.digits
+    for _ in range(20):
+        slug = ''.join(secrets.choice(alphabet) for _ in range(12))
+        if not Admin.query.filter_by(integration_slug=slug).first():
+            return slug
+    # Fallback: ensure even this path returns a slug that was verified unique
+    for _ in range(20):
+        raw = secrets.token_urlsafe(9)
+        slug = (raw.replace('-', 'x').replace('_', 'y') + 'Ab1')[::2][:12]  # 12 chars
+        if not Admin.query.filter_by(integration_slug=slug).first():
+            return slug
+    raise RuntimeError('Could not generate unique integration_slug')
+
+
+def ensure_admin_integration_slug(admin: 'Admin') -> str:
+    """Ensure admin has integration_slug; generate and save if None. Regenerates on unique constraint violation."""
+    if admin.integration_slug:
+        return admin.integration_slug
+    for _ in range(5):
+        admin.integration_slug = _generate_integration_slug()
+        try:
+            db.session.commit()
+            return admin.integration_slug
+        except IntegrityError:
+            db.session.rollback()
+            admin.integration_slug = None
+    raise RuntimeError('Could not assign unique integration_slug to admin')
+
+
+def get_admin_by_integration_identifier(identifier) -> 'Admin':
+    """Resolve Admin by numeric id or integration_slug. Returns None if not found."""
+    try:
+        aid = int(identifier)
+        return Admin.query.get(aid)
+    except (ValueError, TypeError):
+        pass
+    return Admin.query.filter_by(integration_slug=identifier).first()
 
 # Standard lead sources used across forms and analytics.
 SOURCE_OPTIONS = [
@@ -119,6 +151,10 @@ class Admin(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     password_plain_text = db.Column(db.String(255), nullable=False)
+    # Sales record used as "admin queue" bucket for unassigned leads (created when admin is added).
+    admin_sales_id = db.Column(db.Integer, db.ForeignKey('sales.id'), nullable=True)
+    # Unique slug for integration URLs (auto-generated; not guessable from id).
+    integration_slug = db.Column(db.String(24), unique=True, nullable=True, index=True)
 
 class Sales(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -335,342 +371,6 @@ def logout():
     return redirect(url_for('index'))
 
 
-def _proposal_allowed():
-    """Allow proposal access for admin and sales only."""
-    return session.get('user_type') in ('admin', 'sales')
-
-
-def _proposal_doc_path(office):
-    """Path to .docx template; office is 'lucknow' or 'bombay'. Looks in project root."""
-    root = app.root_path
-    if office == 'lucknow':
-        return os.path.join(root, 'proposal.docx')
-    return os.path.join(root, 'proposalMumbaiOffice.docx')
-
-
-def _libreoffice_available():
-    """True if LibreOffice (soffice) is installed for headless DOCX->PDF conversion."""
-    for cmd in ('libreoffice', 'soffice'):
-        if shutil.which(cmd):
-            try:
-                subprocess.run(
-                    [cmd, '--version'],
-                    capture_output=True,
-                    timeout=5,
-                )
-                return True
-            except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-                pass
-    return False
-
-
-def _pdf_export_available():
-    """True if PDF export can be used (Windows docx2pdf or LibreOffice headless)."""
-    if DOCX2PDF_AVAILABLE:
-        return True
-    return _libreoffice_available()
-
-
-def _convert_docx_to_pdf_libreoffice(docx_path, pdf_path):
-    """Convert DOCX to PDF using LibreOffice headless. Returns True on success."""
-    out_dir = os.path.dirname(pdf_path)
-    try:
-        result = subprocess.run(
-            [
-                shutil.which('libreoffice') or shutil.which('soffice'),
-                '--headless',
-                '--convert-to', 'pdf',
-                '--outdir', out_dir,
-                docx_path,
-            ],
-            capture_output=True,
-            timeout=60,
-            cwd=out_dir,
-        )
-        base = os.path.splitext(os.path.basename(docx_path))[0]
-        expected_pdf = os.path.join(out_dir, base + '.pdf')
-        return result.returncode == 0 and os.path.isfile(expected_pdf)
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        return False
-
-
-@app.route('/proposal', methods=['GET'])
-@login_required
-def proposal_form():
-    if not _proposal_allowed():
-        flash('Access denied')
-        return redirect(url_for('index'))
-    return render_template('proposal_form.html', pdf_export_available=_pdf_export_available())
-
-
-@app.route('/proposal/submit', methods=['POST'])
-@login_required
-def proposal_submit():
-    if not _proposal_allowed() or not DOCXTPL_AVAILABLE:
-        if not _proposal_allowed():
-            return redirect(url_for('index'))
-        flash('Proposal generation is not available. Install: pip install docxtpl')
-        return redirect(url_for('proposal_form'))
-    client_name = request.form.get('client_name', '').strip()
-    initial_payment = request.form.get('initial_payment', '')
-    office = request.form.get('office', 'lucknow')
-    particulars = request.form.getlist('particular')
-    amounts = request.form.getlist('amount')
-    remarks = request.form.getlist('remark')
-    items = []
-    for p, a, r in zip(particulars, amounts, remarks):
-        if (p or '').strip() and (a or '').strip():
-            items.append({'particular': p.strip(), 'amount': a.strip(), 'remark': (r or '').strip()})
-    doc_path = _proposal_doc_path(office)
-    if not os.path.isfile(doc_path):
-        flash(f'Proposal template not found: {os.path.basename(doc_path)}. Add it in the project root.')
-        return redirect(url_for('proposal_form'))
-    doc = DocxTemplate(doc_path)
-    sub = doc.new_subdoc()
-    table = sub.add_table(rows=1, cols=4)
-    table.style = 'Table Grid'
-    hdr = table.rows[0].cells
-    hdr[0].text, hdr[1].text, hdr[2].text, hdr[3].text = 'Sr. No', 'Particular', 'Amount', 'Remark'
-    for i, item in enumerate(items, 1):
-        row = table.add_row().cells
-        row[0].text, row[1].text, row[2].text, row[3].text = str(i), item['particular'], item['amount'], item['remark']
-    context = {
-        'client_name': client_name,
-        'initial_payment': initial_payment,
-        'budget_table': sub,
-        'smm': request.form.get('smm') == 'true',
-        'landing_page': request.form.get('landing_page') == 'true',
-        'multipage_website': request.form.get('multipage_website') == 'true',
-        'seo': request.form.get('seo') == 'true',
-        'meta_ads': request.form.get('meta_ads') == 'true',
-        'google_ads': request.form.get('google_ads') == 'true',
-        'out1': request.form.get('out1') == 'true',
-        'out2': request.form.get('out2') == 'true',
-        'out3': request.form.get('out3') == 'true',
-        'multiple_custom_outcomes': request.form.get('multiple_custom_outcomes') == 'true',
-        'creatives': request.form.get('creatives', ''),
-        'reels': request.form.get('reels', ''),
-        'outcomes': request.form.getlist('outcomes') or [],
-    }
-    doc.render(context)
-    buf = BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    filename = f"{client_name.replace(' ', '_')}_proposal.docx"
-    return buf.getvalue(), 200, {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': f'attachment; filename="{filename}"',
-    }
-
-
-@app.route('/proposal/download_pdf', methods=['POST'])
-@login_required
-def proposal_download_pdf():
-    if not _proposal_allowed():
-        return redirect(url_for('index'))
-    if not DOCXTPL_AVAILABLE:
-        flash('Proposal DOCX is required. Install: pip install docxtpl')
-        return redirect(url_for('proposal_form'))
-    if not _pdf_export_available():
-        flash('PDF export is not available. Use Download DOCX, or install LibreOffice (Linux/Mac) for PDF.')
-        return redirect(url_for('proposal_form'))
-    client_name = request.form.get('client_name', '').strip()
-    initial_payment = request.form.get('initial_payment', '')
-    office = request.form.get('office', 'lucknow')
-    particulars = request.form.getlist('particular')
-    amounts = request.form.getlist('amount')
-    remarks = request.form.getlist('remark')
-    items = []
-    for p, a, r in zip(particulars, amounts, remarks):
-        if (p or '').strip() and (a or '').strip():
-            items.append({'particular': p.strip(), 'amount': a.strip(), 'remark': (r or '').strip()})
-    doc_path = _proposal_doc_path(office)
-    if not os.path.isfile(doc_path):
-        flash(f'Proposal template not found: {os.path.basename(doc_path)}.')
-        return redirect(url_for('proposal_form'))
-    doc = DocxTemplate(doc_path)
-    sub = doc.new_subdoc()
-    table = sub.add_table(rows=1, cols=4)
-    table.style = 'Table Grid'
-    hdr = table.rows[0].cells
-    hdr[0].text, hdr[1].text, hdr[2].text, hdr[3].text = 'Sr. No', 'Particular', 'Amount', 'Remark'
-    for i, item in enumerate(items, 1):
-        row = table.add_row().cells
-        row[0].text, row[1].text, row[2].text, row[3].text = str(i), item['particular'], item['amount'], item['remark']
-    context = {
-        'client_name': client_name,
-        'initial_payment': initial_payment,
-        'budget_table': sub,
-        'smm': request.form.get('smm') == 'true',
-        'landing_page': request.form.get('landing_page') == 'true',
-        'multipage_website': request.form.get('multipage_website') == 'true',
-        'seo': request.form.get('seo') == 'true',
-        'meta_ads': request.form.get('meta_ads') == 'true',
-        'google_ads': request.form.get('google_ads') == 'true',
-        'out1': request.form.get('out1') == 'true',
-        'out2': request.form.get('out2') == 'true',
-        'out3': request.form.get('out3') == 'true',
-        'multiple_custom_outcomes': request.form.get('multiple_custom_outcomes') == 'true',
-        'creatives': request.form.get('creatives', ''),
-        'reels': request.form.get('reels', ''),
-        'outcomes': request.form.getlist('outcomes') or [],
-    }
-    doc.render(context)
-    with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
-        doc.save(f.name)
-        temp_docx = f.name
-    out_dir = os.path.dirname(temp_docx)
-    base_name = os.path.splitext(os.path.basename(temp_docx))[0]
-    temp_pdf = os.path.join(out_dir, base_name + '.pdf')
-    pdf_generated = False
-    try:
-        if DOCX2PDF_AVAILABLE:
-            try:
-                pythoncom.CoInitialize()
-                docx2pdf_convert(temp_docx, temp_pdf)
-                pdf_generated = os.path.isfile(temp_pdf)
-            except Exception:
-                pass
-            finally:
-                try:
-                    pythoncom.CoUninitialize()
-                except Exception:
-                    pass
-        if not pdf_generated and _libreoffice_available():
-            pdf_generated = _convert_docx_to_pdf_libreoffice(temp_docx, temp_pdf)
-        if not pdf_generated:
-            flash('PDF conversion failed. Use Download DOCX instead.')
-            return redirect(url_for('proposal_form'))
-        with open(temp_pdf, 'rb') as f:
-            pdf_data = f.read()
-        filename = f"{client_name.replace(' ', '_')}_proposal.pdf"
-        return pdf_data, 200, {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': f'attachment; filename="{filename}"',
-        }
-    finally:
-        for p in (temp_docx, temp_pdf):
-            try:
-                if p and os.path.isfile(p):
-                    os.unlink(p)
-            except Exception:
-                pass
-
-
-# Invoice (admin only)
-INVOICE_TEMPLATE_UP = 'Billing.docx'
-INVOICE_TEMPLATE_OTHER_STATE = 'BillingOther.docx'
-
-
-def _invoice_allowed():
-    """Invoice is admin only."""
-    return session.get('user_type') == 'admin'
-
-
-@app.route('/invoice', methods=['GET'])
-@login_required
-def invoice_form():
-    if not _invoice_allowed():
-        flash('Access denied')
-        return redirect(url_for('index'))
-    return render_template('invoice_form.html')
-
-
-@app.route('/invoice/generate', methods=['POST'])
-@login_required
-def invoice_generate():
-    if not _invoice_allowed():
-        return redirect(url_for('index'))
-    if not DOCXTPL_AVAILABLE or RichText is None:
-        flash('Invoice generation requires docxtpl. Install: pip install docxtpl')
-        return redirect(url_for('invoice_form'))
-    invoice_type = (request.form.get('invoice_type') or 'up').strip().lower()
-    is_other_state = invoice_type == 'other'
-    template_name = INVOICE_TEMPLATE_OTHER_STATE if is_other_state else INVOICE_TEMPLATE_UP
-    doc_path = os.path.join(app.root_path, template_name)
-    if not os.path.isfile(doc_path):
-        flash(f'Invoice template not found: {template_name}. Add it in the project root.')
-        return redirect(url_for('invoice_form'))
-    hsn_list = request.form.getlist('hsn_sac[]')
-    desc_list = request.form.getlist('description[]')
-    rate_list = request.form.getlist('rate[]')
-    qty_list = request.form.getlist('quantity[]')
-    if not hsn_list or not desc_list or not rate_list or not qty_list:
-        flash('Add at least one invoice item.')
-        return redirect(url_for('invoice_form'))
-    total_amount = 0.0
-    hsn_text = RichText()
-    desc_text = RichText()
-    rate_text = RichText()
-    total_text = RichText()
-    for i, (hsn, desc, rate, qty) in enumerate(zip(hsn_list, desc_list, rate_list, qty_list)):
-        try:
-            rate_f = float(rate)
-            qty_f = float(qty)
-        except (ValueError, TypeError):
-            continue
-        item_total = rate_f * qty_f
-        total_amount += item_total
-        if i > 0:
-            hsn_text.add('\n')
-            desc_text.add('\n')
-            rate_text.add('\n')
-            total_text.add('\n')
-        hsn_text.add(str(hsn).strip())
-        desc_text.add(str(desc).strip())
-        rate_text.add(str(round(rate_f, 2)))
-        total_text.add(str(round(item_total, 2)))
-    try:
-        discount = float(request.form.get('discount') or 0)
-        other_charges = float(request.form.get('other_charges') or 0)
-    except (ValueError, TypeError):
-        discount = 0.0
-        other_charges = 0.0
-    taxable_value = total_amount - discount
-    base_context = {
-        'customer_name': request.form.get('customer_name', ''),
-        'customer_address': request.form.get('customer_address', ''),
-        'cust_gst': request.form.get('cust_gst', ''),
-        'place_of_supply': request.form.get('place_of_supply', ''),
-        'invoice_number': request.form.get('invoice_number', ''),
-        'date': request.form.get('date', ''),
-        'hsn_sac': hsn_text,
-        'description': desc_text,
-        'rate': rate_text,
-        'total': total_text,
-        'total_taxable': round(total_amount, 2),
-        'discount': round(discount, 2),
-        'other_charges': round(other_charges, 2),
-        'grand_total': 0,  # set below
-    }
-    if is_other_state:
-        igst = taxable_value * 0.18
-        grand_total = taxable_value + igst + other_charges
-        base_context['grand_total'] = round(grand_total, 2)
-        base_context['igst'] = round(igst, 2)
-        # BillingOther.docx has no cgst/sgst fields
-        context = base_context
-    else:
-        cgst = taxable_value * 0.09
-        sgst = taxable_value * 0.09
-        grand_total = taxable_value + cgst + sgst + other_charges
-        base_context['grand_total'] = round(grand_total, 2)
-        base_context['cgst'] = round(cgst, 2)
-        base_context['sgst'] = round(sgst, 2)
-        # Billing.docx has no igst field
-        context = base_context
-    doc = DocxTemplate(doc_path)
-    doc.render(context)
-    buf = BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    download_name = f"Invoice_{request.form.get('invoice_number', 'invoice').replace(' ', '_')}.docx"
-    return buf.getvalue(), 200, {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': f'attachment; filename="{download_name}"',
-    }
-
-
 # Super Admin Routes
 @app.route('/super-admin/dashboard')
 @login_required
@@ -731,7 +431,29 @@ def add_admin():
                 password_hash=generate_password_hash(password),
                 password_plain_text=password
             )
-            db.session.add(new_admin)
+            for _ in range(5):
+                new_admin.integration_slug = _generate_integration_slug()
+                db.session.add(new_admin)
+                try:
+                    db.session.commit()
+                    break
+                except IntegrityError:
+                    db.session.rollback()
+                    new_admin.integration_slug = None
+            else:
+                flash('Could not create admin (please try again)')
+                return redirect(url_for('add_admin'))
+            # Create admin bucket Sales record (for unassigned leads) and link it
+            bucket_username = f"admin_queue_{new_admin.id}"
+            bucket_sales = Sales(
+                admin_id=new_admin.id,
+                name="Admin Queue",
+                username=bucket_username,
+                password_hash=generate_password_hash(bucket_username),  # placeholder, not used for login
+            )
+            db.session.add(bucket_sales)
+            db.session.commit()
+            new_admin.admin_sales_id = bucket_sales.id
             db.session.commit()
             flash('Admin added successfully')
             return redirect(url_for('super_admin_dashboard'))
@@ -763,9 +485,23 @@ def remove_admin(id):
         return redirect(url_for('index'))
     
     admin = Admin.query.get_or_404(id)
-    db.session.delete(admin)
-    db.session.commit()
-    flash('Admin removed successfully')
+    try:
+        admin.admin_sales_id = None
+        db.session.commit()
+        sales_ids = [s.id for s in Sales.query.filter_by(admin_id=id).all()]
+        for sid in sales_ids:
+            DeviceToken.query.filter_by(sales_id=sid).delete()
+            FollowUp.query.filter_by(sales_id=sid).delete()
+            Query.query.filter_by(sales_id=sid).delete()
+        FollowUp.query.filter_by(admin_id=id).delete()
+        Query.query.filter_by(admin_id=id).delete()
+        Sales.query.filter_by(admin_id=id).delete()
+        db.session.delete(admin)
+        db.session.commit()
+        flash('Admin removed successfully')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error removing admin: {str(e)}')
     return redirect(url_for('super_admin_dashboard'))
 
 # Admin Routes
@@ -831,15 +567,95 @@ def admin_dashboard():
         for fu in followups:
             followups_by_query.setdefault(fu.query_id, []).append(fu)
     
+    admin_sales_id = get_admin_sales_id(current_user.id)
     return render_template(
         'admin_dashboard.html',
         sales_persons=sales_persons,
+        admin_sales_id=admin_sales_id,
         queries_by_month=queries_by_month,
         month_keys=month_keys,
         current_month_year=current_month_year,
         queries_list=queries_list,
         followups_by_query=followups_by_query,
         search_query=search_query,
+    )
+
+@app.route('/admin/integrations')
+@login_required
+def admin_integrations():
+    """Integration endpoints page for admin: copy-ready URLs with integration_slug, sample request/response."""
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+    integration_slug = ensure_admin_integration_slug(current_user)
+    base_url = (app.config.get('BASE_URL') or request.url_root or '').rstrip('/')
+    admin_id = current_user.id
+    endpoints = [
+        {
+            'name': 'Website Lead',
+            'method': 'POST',
+            'path': f'/api/website/lead/{integration_slug}',
+            'description': 'Website lead form. Creates query in your Admin Queue. Optional auto-assign if enabled.',
+            'sample_request': {
+                'name': 'Lead Name',
+                'phone_number': '9999888877',
+                'service_query': 'Website enquiry text',
+                'mail_id': 'lead@example.com',
+                'source': 'website',
+                'closure': 'pending'
+            },
+            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 43}
+        },
+        {
+            'name': 'Form / Google Forms',
+            'method': 'POST',
+            'path': f'/api/formAdd/{integration_slug}',
+            'description': 'Google Forms / Apps Script. Source normalized from payload or default "cold approach".',
+            'sample_request': {
+                'name': 'Form Lead',
+                'phone_number': '8888777766',
+                'service_query': 'Form enquiry',
+                'mail_id': 'form@example.com',
+                'source': 'Website',
+                'closure': 'pending'
+            },
+            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 44}
+        },
+        {
+            'name': 'Webhook: Magic Bricks',
+            'method': 'POST',
+            'path': f'/api/webhook/magic-bricks/{integration_slug}',
+            'description': 'Webhook for Magic Bricks. Any JSON body; lead created with source "magic bricks".',
+            'sample_request': {'foo': 'bar'},
+            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 45}
+        },
+        {
+            'name': 'Webhook: 99acres',
+            'method': 'POST',
+            'path': f'/api/webhook/99acres/{integration_slug}',
+            'description': 'Webhook for 99acres. Any JSON body; lead created with source "99acres".',
+            'sample_request': {},
+            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 46}
+        },
+        {
+            'name': 'Webhook: Housing',
+            'method': 'POST',
+            'path': f'/api/webhook/housing/{integration_slug}',
+            'description': 'Webhook for Housing. Any JSON body; lead created with source "housing".',
+            'sample_request': {},
+            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 47}
+        },
+    ]
+    for ep in endpoints:
+        ep['full_url'] = base_url + ep['path'] if base_url else ep['path']
+        ep['sample_request_json'] = json.dumps(ep['sample_request'], indent=2)
+        ep['sample_response_json'] = json.dumps(ep['sample_response'], indent=2)
+    return render_template(
+        'admin_integrations.html',
+        base_url=base_url,
+        admin_id=admin_id,
+        integration_slug=integration_slug,
+        endpoints=endpoints,
     )
 
 @app.route('/admin/add-sales', methods=['GET', 'POST'])
@@ -880,6 +696,11 @@ def remove_sales(id):
     sales = Sales.query.get_or_404(id)
     if sales.admin_id != current_user.id:
         flash('Access denied')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Do not allow deleting the admin bucket sales (used for unassigned leads)
+    if Admin.query.filter_by(admin_sales_id=id).first():
+        flash('Cannot remove Admin Queue. It is used for unassigned leads.')
         return redirect(url_for('admin_dashboard'))
     
     try:
@@ -930,6 +751,11 @@ def change_sales_password():
     sales = Sales.query.filter_by(id=sales_id, admin_id=current_user.id).first()
     if not sales:
         flash('Sales person not found or access denied')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Do not allow changing password for Admin Queue (admin bucket sales)
+    if get_admin_sales_id(current_user.id) == sales.id:
+        flash('Cannot change password for Admin Queue')
         return redirect(url_for('admin_dashboard'))
     
     try:
@@ -1808,15 +1634,18 @@ def api_add_query():
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# API endpoint for website lead form
-@app.route("/api/website/lead", methods=["POST"])
-def api_website_lead():
+# API endpoint for website lead form (admin id or integration_slug in URL)
+@app.route("/api/website/lead/<admin_identifier>", methods=["POST"])
+def api_website_lead(admin_identifier):
     """
     Endpoint for website lead form submissions.
-    Accepts JSON with lead information and creates a query.
-    Uses hardcoded values: admin_id=3, sales_id=0, source='website'
+    URL uses admin integration_slug (or numeric id). Uses admin's bucket sales, source='website'.
     """
     try:
+        admin_user = get_admin_by_integration_identifier(admin_identifier)
+        if not admin_user:
+            return jsonify({"status": "error", "message": "Admin not found"}), 404
+        admin_id = admin_user.id
         # Check if request has JSON content
         if not request.is_json:
             return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
@@ -1829,19 +1658,11 @@ def api_website_lead():
             if not data.get(field):
                 return jsonify({"status": "error", "message": f"Missing required field: {field}"}), 400
         
-        # Hardcoded values as specified
-        admin_id = 3
-        sales_id = 0
+        sales_id = get_admin_sales_id(admin_id)
         source = "website"
         date_of_enquiry = get_ist_now()
         
-        # Verify admin exists
-        admin_user = Admin.query.get(admin_id)
-        if not admin_user:
-            return jsonify({"status": "error", "message": "Admin not found"}), 404
-        
-        # Verify sales exists (if sales_id = 0 is not a valid sales person, this will fail)
-        # But implementing as requested
+        # Verify admin bucket sales exists
         sales_user = Sales.query.get(sales_id)
         if not sales_user:
             return jsonify({"status": "error", "message": "Sales user not found"}), 404
@@ -1889,8 +1710,8 @@ def api_website_lead():
 
 def _create_webhook_fixed_lead(source: str, admin_id: int):
     """
-    Create a webhook lead with fixed values as requested:
-    sales_id=0, date_of_enquiry=now, closure='pending',
+    Create a webhook lead with fixed values:
+    sales_id = admin's bucket (from DB), date_of_enquiry=now, closure='pending',
     name/phone/mail fixed, and service_query as received JSON payload.
     """
     try:
@@ -1898,7 +1719,7 @@ def _create_webhook_fixed_lead(source: str, admin_id: int):
             return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
 
         payload = request.get_json() or {}
-        sales_id = 0
+        sales_id = get_admin_sales_id(admin_id)
         date_of_enquiry = get_ist_now()
 
         admin_user = db.session.get(Admin, admin_id)
@@ -1946,30 +1767,39 @@ def _create_webhook_fixed_lead(source: str, admin_id: int):
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/api/webhook/magic-bricks/<int:admin_id>", methods=["POST"])
-@app.route("/api/webhook/magic-bricks", methods=["POST"])
-def api_webhook_magic_bricks(admin_id=3):
-    return _create_webhook_fixed_lead("magic bricks", int(admin_id))
+@app.route("/api/webhook/magic-bricks/<admin_identifier>", methods=["POST"])
+def api_webhook_magic_bricks(admin_identifier):
+    admin_user = get_admin_by_integration_identifier(admin_identifier)
+    if not admin_user:
+        return jsonify({"status": "error", "message": "Admin not found"}), 404
+    return _create_webhook_fixed_lead("magic bricks", admin_user.id)
 
-@app.route("/api/webhook/99acres/<int:admin_id>", methods=["POST"])
-@app.route("/api/webhook/99acres", methods=["POST"])
-def api_webhook_99acres(admin_id=3):
-    return _create_webhook_fixed_lead("99acres", int(admin_id))
+@app.route("/api/webhook/99acres/<admin_identifier>", methods=["POST"])
+def api_webhook_99acres(admin_identifier):
+    admin_user = get_admin_by_integration_identifier(admin_identifier)
+    if not admin_user:
+        return jsonify({"status": "error", "message": "Admin not found"}), 404
+    return _create_webhook_fixed_lead("99acres", admin_user.id)
 
-@app.route("/api/webhook/housing/<int:admin_id>", methods=["POST"])
-@app.route("/api/webhook/housing", methods=["POST"])
-def api_webhook_housing(admin_id=3):
-    return _create_webhook_fixed_lead("housing", int(admin_id))
+@app.route("/api/webhook/housing/<admin_identifier>", methods=["POST"])
+def api_webhook_housing(admin_identifier):
+    admin_user = get_admin_by_integration_identifier(admin_identifier)
+    if not admin_user:
+        return jsonify({"status": "error", "message": "Admin not found"}), 404
+    return _create_webhook_fixed_lead("housing", admin_user.id)
 
-# API endpoint for Google Forms submissions
-@app.route("/api/formAdd", methods=["POST"])
-def api_form_add():
+# API endpoint for Google Forms submissions (admin id or integration_slug in URL)
+@app.route("/api/formAdd/<admin_identifier>", methods=["POST"])
+def api_form_add(admin_identifier):
     """
     Endpoint for Google Forms submissions via Apps Script.
-    Accepts JSON with form data and creates a query.
-    Uses hardcoded values: admin_id=3, sales_id=0, source='cold approach' (or from payload)
+    URL uses admin integration_slug (or numeric id). Uses admin's bucket sales, source from payload or 'cold approach'.
     """
     try:
+        admin_user = get_admin_by_integration_identifier(admin_identifier)
+        if not admin_user:
+            return jsonify({"status": "error", "message": "Admin not found"}), 404
+        admin_id = admin_user.id
         # Check if request has JSON content
         if not request.is_json:
             return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
@@ -1988,9 +1818,7 @@ def api_form_add():
         if not mail_id:
             mail_id = "johndoe@example.com"
         
-        # Hardcoded values - same as website endpoint
-        admin_id = 3
-        sales_id = 0
+        sales_id = get_admin_sales_id(admin_id)
         
         # Normalize source to match exact values used in the system
         # Google Form dropdown values: GMB, Justdial, Facebook, Website, Reference, Cold Approach,
@@ -2047,11 +1875,6 @@ def api_form_add():
         source = normalize_source(source_input)
         date_of_enquiry = get_ist_now()
         
-        # Verify admin exists
-        admin_user = Admin.query.get(admin_id)
-        if not admin_user:
-            return jsonify({"status": "error", "message": "Admin not found"}), 404
-        
         # Verify sales exists
         sales_user = Sales.query.get(sales_id)
         if not sales_user:
@@ -2105,9 +1928,7 @@ def api_form_add():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ------------------------
-# Mobile App JSON Endpoints
-# ------------------------
-
+# WebView FCM helpers (session-authenticated)
 def _generate_mobile_token(user: Sales) -> str:
     import secrets
     return f"s_{user.id}_" + secrets.token_hex(24)
@@ -2118,71 +1939,6 @@ def _require_json_fields(data, fields):
         return f"Missing required field(s): {', '.join(missing)}"
     return None
 
-# @app.route('/api/mobile/login', methods=['POST'])
-# def api_mobile_login():
-#     if not request.is_json:
-#         return jsonify({"status":"error","message":"Content-Type must be application/json"}), 400
-#     data = request.get_json() or {}
-#     err = _require_json_fields(data, ["username", "password", "device_token", "platform", "app_version"])
-#     if err:
-#         return jsonify({"status":"error","message":err}), 400
-#     user = Sales.query.filter_by(username=data["username"]).first()
-#     if not user or not check_password_hash(user.password_hash, data["password"]):
-#         return jsonify({"status":"error","message":"Invalid credentials"}), 401
-#     # Issue a simple bearer token (DB-less). In production, use JWT.
-#     token = _generate_mobile_token(user)
-#     # Upsert device token
-#     existing = DeviceToken.query.filter_by(device_token=data["device_token"]).first()
-#     if existing:
-#         existing.sales_id = user.id
-#         existing.platform = data.get("platform")
-#         existing.app_version = data.get("app_version")
-#         existing.is_active = True
-#         existing.last_seen_at = datetime.utcnow()
-#     else:
-#         rec = DeviceToken(
-#             sales_id=user.id,
-#             device_token=data["device_token"],
-#             platform=data.get("platform"),
-#             app_version=data.get("app_version"),
-#             is_active=True,
-#             last_seen_at=get_ist_now(),
-#         )
-#         db.session.add(rec)
-#     db.session.commit()
-#     return jsonify({"status":"success","token":token, "sales_id": user.id, "name": user.name})
-
-
-@app.route('/api/mobile/login', methods=['POST'])
-def api_mobile_login():
-    if not request.is_json:
-        return jsonify({"status":"error","message":"Content-Type must be application/json"}), 400
-
-    data = request.get_json() or {}
-    err = _require_json_fields(data, ["username", "password"])
-    if err:
-        return jsonify({"status":"error","message":err}), 400
-
-    user = Sales.query.filter_by(username=data["username"]).first()
-    if not user or not check_password_hash(user.password_hash, data["password"]):
-        return jsonify({"status":"error","message":"Invalid credentials"}), 401
-
-    # Issue a simple bearer token (DB-less). In production, use JWT.
-    token = _generate_mobile_token(user)
-
-    # Backward compatible: if device details are sent at login, upsert token.
-    device_token = data.get("device_token")
-    if device_token:
-        _upsert_device_token_for_sales(
-            sales_id=user.id,
-            fcm_token=str(device_token).strip(),
-            platform=(data.get("device_type") or data.get("platform") or "unknown"),
-            app_version=(data.get("app_version") or data.get("device_name") or ""),
-        )
-
-    db.session.commit()
-
-    return jsonify({"status":"success","token":token, "sales_id": user.id, "name": user.name})
 
 def _auth_sales_from_header():
     auth = request.headers.get('Authorization','')
@@ -2199,6 +1955,8 @@ def _auth_sales_from_header():
     except Exception:
         return None
     return None
+
+# ------------------------
 
 def _upsert_device_token_for_sales(sales_id: int, fcm_token: str, platform: str = "unknown", app_version: str = ""):
     target = DeviceToken.query.filter_by(sales_id=sales_id).first()
@@ -2267,75 +2025,6 @@ def _serialize_admin_devices(admin_id: int):
         "last_active": d.last_seen_at.isoformat() if d.last_seen_at else None,
         "created_at": d.created_at.isoformat() if d.created_at else None,
     } for d in devices]
-
-@app.route('/api/mobile/register-token', methods=['POST'])
-def api_mobile_register_token():
-    """Register or update an FCM token for the authenticated sales user."""
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not request.is_json:
-        return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
-
-    data = request.get_json() or {}
-    fcm_token = (data.get("fcm_token") or data.get("device_token") or "").strip()
-    platform = (data.get("device_type") or data.get("platform") or "unknown").strip()
-    app_version = (data.get("app_version") or data.get("device_name") or "").strip()
-
-    if not fcm_token:
-        return jsonify({"status": "error", "message": "FCM token is required"}), 400
-
-    try:
-        _upsert_device_token_for_sales(
-            sales_id=sales_user.id,
-            fcm_token=fcm_token,
-            platform=platform,
-            app_version=app_version,
-        )
-
-        db.session.commit()
-        return jsonify({"status": "success", "message": "FCM token registered successfully"}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/mobile/remove-token', methods=['POST'])
-def api_mobile_remove_token():
-    """Remove one or all FCM tokens for the authenticated sales user."""
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not request.is_json:
-        return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
-
-    data = request.get_json() or {}
-    fcm_token = (data.get("fcm_token") or data.get("device_token") or "").strip()
-
-    try:
-        if fcm_token:
-            rec = DeviceToken.query.filter_by(sales_id=sales_user.id, device_token=fcm_token).first()
-            if rec:
-                db.session.delete(rec)
-        else:
-            DeviceToken.query.filter_by(sales_id=sales_user.id).delete()
-
-        db.session.commit()
-        return jsonify({"status": "success", "message": "FCM token(s) removed successfully"}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/mobile/devices', methods=['GET'])
-def api_mobile_devices():
-    """List FCM device rows for the authenticated sales user."""
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    try:
-        result = _serialize_sales_devices(sales_user.id)
-        return jsonify({"status": "success", "devices": result}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 # WebView/session-authenticated FCM endpoints
 @app.route('/api/webview/register-token', methods=['POST'])
@@ -2430,74 +2119,6 @@ def api_webview_devices():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-@app.route('/api/mobile/queries', methods=['GET'])
-def api_mobile_queries():
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    rows = Query.query.filter_by(sales_id=sales_user.id).order_by(Query.id.desc()).all()
-    def to_row(q: Query):
-        return {
-            "id": q.id,
-            "name": q.name,
-            "phone_number": q.phone_number,
-            "service": q.service_query,
-            "source": q.source,
-            "closure": q.closure,
-            "date": q.date_of_enquiry.strftime('%Y-%m-%d %H:%M:%S')
-        }
-    return jsonify({"status":"success","results":[to_row(q) for q in rows]})
-
-@app.route('/api/mobile/query/<int:query_id>/closure', methods=['PUT'])
-def api_mobile_update_closure(query_id: int):
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    q = Query.query.get_or_404(query_id)
-    if q.sales_id != sales_user.id:
-        return jsonify({"status":"error","message":"Forbidden"}), 403
-    if not request.is_json:
-        return jsonify({"status":"error","message":"Content-Type must be application/json"}), 400
-    closure = (request.json or {}).get('closure')
-    if not closure:
-        return jsonify({"status":"error","message":"Missing closure"}), 400
-    q.closure = closure
-    db.session.commit()
-    return jsonify({"status":"success"})
-
-@app.route('/api/mobile/followups', methods=['POST'])
-def api_mobile_add_followup():
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    if not request.is_json:
-        return jsonify({"status":"error","message":"Content-Type must be application/json"}), 400
-    data = request.json or {}
-    err = _require_json_fields(data, ["query_id", "remark", "date_of_contact"])
-    if err:
-        return jsonify({"status":"error","message":err}), 400
-    q = Query.query.get_or_404(int(data["query_id"]))
-    if q.sales_id != sales_user.id:
-        return jsonify({"status":"error","message":"Forbidden"}), 403
-    
-    # Parse the date_of_contact
-    date_of_contact_str = data["date_of_contact"]
-    try:
-        date_of_contact = datetime.fromisoformat(date_of_contact_str.replace('Z', '+00:00'))
-    except ValueError:
-        return jsonify({"status":"error","message":"Invalid date format"}), 400
-    
-    fu = FollowUp(
-        admin_id=q.admin_id,
-        sales_id=sales_user.id,
-        query_id=q.id,
-        remark=data["remark"].strip(),
-        date_of_contact=date_of_contact
-    )
-    db.session.add(fu)
-    db.session.commit()
-    return jsonify({"status":"success","followup_id": fu.id})
-
 # Endpoint to send notification by sales id
 @app.route('/api/notify/sales/<int:sales_id>', methods=['POST'])
 def api_notify_sales(sales_id: int):
@@ -2570,9 +2191,10 @@ def send_notification_to_admin_device(admin_id: int, title: str, body: str, data
 def notify_query_assignment(q: Query, previous_sales_id: int | None = None) -> int:
     total_sent = 0
     base_data = {"query_id": str(q.id), "name": q.name, "phone": q.phone_number}
+    admin_bucket_sales_id = get_admin_sales_id(q.admin_id)
 
-    # Normal assignment to a sales person.
-    if q.sales_id != 0:
+    # Normal assignment to a sales person (not in admin bucket).
+    if q.sales_id != admin_bucket_sales_id:
         total_sent += send_notification_to_sales_device(
             q.sales_id,
             'New Query Assigned',
@@ -2580,7 +2202,7 @@ def notify_query_assignment(q: Query, previous_sales_id: int | None = None) -> i
             base_data,
         )
     else:
-        # Assigned to admin sales bucket (sales_id=0): notify admin + admin-sales token.
+        # Assigned to admin sales bucket: notify admin + admin-sales device tokens.
         total_sent += send_notification_to_admin_device(
             q.admin_id,
             'New Query in Admin Queue',
@@ -2588,7 +2210,7 @@ def notify_query_assignment(q: Query, previous_sales_id: int | None = None) -> i
             base_data,
         )
         total_sent += send_notification_to_sales_device(
-            0,
+            admin_bucket_sales_id,
             'New Query in Admin Queue',
             f"{q.name} - {q.service_query[:30]}",
             base_data,
@@ -2596,7 +2218,7 @@ def notify_query_assignment(q: Query, previous_sales_id: int | None = None) -> i
 
     # Reassignment notifications.
     if previous_sales_id is not None and previous_sales_id != q.sales_id:
-        if previous_sales_id != 0:
+        if previous_sales_id != admin_bucket_sales_id:
             total_sent += send_notification_to_sales_device(
                 previous_sales_id,
                 'Query Reassigned',
@@ -2619,34 +2241,32 @@ def send_new_query_notification_to_sales(sales_id: int, q: Query):
 
 def assign_sales_rep_to_query(query_id):
     """
-    Reassigns a query from default sales to the next sales rep in rotation.
-    This function finds all sales reps for the query's admin (excluding admin sales with id=0),
-    determines the last assigned sales rep by checking the most recent query,
-    and assigns the query to the next sales rep in rotation.
+    Reassigns a query from admin bucket to the next sales rep in rotation.
+    Finds all sales reps for the query's admin (excluding admin's bucket sales),
+    determines the last assigned sales rep, and assigns the query to the next in rotation.
     """
     query = Query.query.get(query_id)
     if not query:
         return
     
     admin_id = query.admin_id
-    current_sales_id = query.sales_id
+    admin_bucket_sales_id = get_admin_sales_id(admin_id)
     
-    # Get all sales reps for this admin, excluding admin sales (id=0)
-    # We need all sales reps (not excluding current) to determine rotation order
+    # Get all sales reps for this admin, excluding admin bucket sales
     all_sales_reps = Sales.query.filter_by(admin_id=admin_id).filter(
-        Sales.id != 0  # Exclude admin sales
+        Sales.id != admin_bucket_sales_id
     ).order_by(Sales.id).all()
     
     # If no sales reps available, keep the current assignment
     if not all_sales_reps:
         return
     
-    # Get the most recently created query for this admin (excluding the current query)
-    # to determine which sales rep was last assigned (excluding admin sales)
+    # Get the most recently created query for this admin (excluding current)
+    # to determine which sales rep was last assigned (excluding admin bucket)
     last_query = Query.query.filter(
         Query.admin_id == admin_id,
         Query.id != query_id,
-        Query.sales_id != 0  # Exclude admin sales
+        Query.sales_id != admin_bucket_sales_id
     ).order_by(Query.id.desc()).first()
     
     # Get list of sales rep IDs in rotation order
@@ -2673,32 +2293,10 @@ def assign_sales_rep_to_query(query_id):
     db.session.commit()
 
 
-# Add this new route to your app.py
 @app.route('/api/debug/sales_tokens/<int:sales_id>', methods=['GET'])
 def debug_sales_tokens(sales_id):
     tokens = [d.device_token for d in DeviceToken.query.filter_by(sales_id=sales_id, is_active=True).all()]
     return jsonify({"sales_id": sales_id, "tokens": tokens})
-
-@app.route('/api/mobile/query/<int:query_id>/followups', methods=['GET'])
-def api_mobile_get_followups(query_id: int):
-    sales_user = _auth_sales_from_header()
-    if not sales_user:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-
-    query = Query.query.get_or_404(query_id)
-    if query.sales_id != sales_user.id:
-        return jsonify({"status":"error", "message":"Forbidden"}), 403
-
-    followups = FollowUp.query.filter_by(query_id=query_id).order_by(FollowUp.date_of_contact.desc()).all()
-
-    def to_row(fu: FollowUp):
-        return {
-            "id": fu.id,
-            "remark": fu.remark,
-            "date_of_contact": fu.date_of_contact.strftime('%Y-%m-%d %H:%M:%S')
-        }
-
-    return jsonify({"status": "success", "results": [to_row(fu) for fu in followups]})
 
 @app.route('/test-firebase')
 def test_firebase():
