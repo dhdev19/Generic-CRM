@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}Register - CRM System{% endblock %}
+
+{% block auth_content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h2 class="text-primary mb-3">Create your account</h2>
+                    <p class="text-muted small">Register as Admin. Verify email, choose a plan and complete payment to activate.</p>
+                    {% if errors %}
+                    <div class="alert alert-danger">
+                        <ul class="mb-0 list-unstyled">
+                            {% for e in errors %}
+                            <li>{{ e }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('register') }}" id="registerForm">
+                        <div class="mb-3">
+                            <label for="full_name" class="form-label">Full name</label>
+                            <input type="text" class="form-control" id="full_name" name="full_name" required
+                                   value="{{ full_name or '' }}" placeholder="Your full name">
+                        </div>
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="username" name="username" required
+                                   value="{{ username or '' }}" placeholder="Login username">
+                            <div id="usernameFeedback" class="form-text"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="password" name="password" required
+                                   placeholder="Min 8 chars, 1 upper, 1 lower, 1 number, 1 special">
+                            <div id="passwordFeedback" class="small mt-1"></div>
+                            <div class="form-text">Min 8 characters, at least one uppercase, one lowercase, one number, one special character</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <div class="input-group">
+                                <input type="email" class="form-control" id="email" name="email" required
+                                       value="{{ email or '' }}" placeholder="your@email.com">
+                                <button type="button" class="btn btn-outline-primary" id="sendOtpBtn">Verify email</button>
+                            </div>
+                            <div id="emailOtpRow" class="mt-2 d-none">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="otpInput" placeholder="Enter 6-digit OTP" maxlength="6" pattern="[0-9]*" inputmode="numeric">
+                                    <button type="button" class="btn btn-outline-success" id="verifyOtpBtn">Verify OTP</button>
+                                </div>
+                                <div class="mt-1">
+                                    <button type="button" class="btn btn-link btn-sm p-0" id="resendOtpBtn" disabled>Resend OTP (available in <span id="resendCountdown">5:00</span>)</button>
+                                </div>
+                            </div>
+                            <div id="emailVerifiedBadge" class="text-success small mt-1 d-none"><i class="fas fa-check-circle"></i> Email verified</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="phone_number" class="form-label">Phone number</label>
+                            <input type="text" class="form-control" id="phone_number" name="phone_number" required
+                                   value="{{ phone_number or '' }}" placeholder="10-digit mobile">
+                        </div>
+                        <div class="mb-3">
+                            <label for="organization_name" class="form-label">Organization name</label>
+                            <input type="text" class="form-control" id="organization_name" name="organization_name" required
+                                   value="{{ organization_name or '' }}" placeholder="Your company name">
+                        </div>
+                        <div class="mb-4">
+                            <label for="plan_id" class="form-label">Plan</label>
+                            <select class="form-select" id="plan_id" name="plan_id" required>
+                                <option value="">Select a plan</option>
+                                {% for p in plans %}
+                                <option value="{{ p.id }}" {% if plan_id and plan_id|string == p.id|string %}selected{% endif %}>
+                                    ₹{{ p.amount }} — {{ p.max_users }} users, {{ p.validity }} days
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn w-100 text-white" id="submitBtn" style="background-color: #192e81;" disabled>Continue to payment</button>
+                    </form>
+                    <div class="text-center mt-3">
+                        <a href="{{ url_for('login') }}" class="text-muted small">Already have an account? Login</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    const form = document.getElementById('registerForm');
+    const fullName = document.getElementById('full_name');
+    const username = document.getElementById('username');
+    const password = document.getElementById('password');
+    const email = document.getElementById('email');
+    const phoneNumber = document.getElementById('phone_number');
+    const organizationName = document.getElementById('organization_name');
+    const planId = document.getElementById('plan_id');
+    const submitBtn = document.getElementById('submitBtn');
+    const usernameFeedback = document.getElementById('usernameFeedback');
+    const passwordFeedback = document.getElementById('passwordFeedback');
+    const sendOtpBtn = document.getElementById('sendOtpBtn');
+    const emailOtpRow = document.getElementById('emailOtpRow');
+    const otpInput = document.getElementById('otpInput');
+    const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+    const resendOtpBtn = document.getElementById('resendOtpBtn');
+    const resendCountdown = document.getElementById('resendCountdown');
+    const emailVerifiedBadge = document.getElementById('emailVerifiedBadge');
+
+    let usernameAvailable = false;
+    let usernameChecking = false;
+    let passwordValid = false;
+    let emailVerified = false;
+    let resendTimer = null;
+
+    function validatePassword(pwd) {
+        const min8 = pwd.length >= 8;
+        const upper = /[A-Z]/.test(pwd);
+        const lower = /[a-z]/.test(pwd);
+        const num = /[0-9]/.test(pwd);
+        const special = /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;\/'`~]/.test(pwd);
+        const valid = min8 && upper && lower && num && special;
+        const parts = [];
+        if (!min8) parts.push('8+ chars');
+        if (!upper) parts.push('1 uppercase');
+        if (!lower) parts.push('1 lowercase');
+        if (!num) parts.push('1 number');
+        if (!special) parts.push('1 special');
+        return { valid, message: valid ? 'Password is strong' : 'Missing: ' + parts.join(', ') };
+    }
+
+    function checkUsername() {
+        const u = username.value.trim();
+        if (!u) {
+            usernameFeedback.textContent = '';
+            usernameFeedback.className = 'form-text';
+            usernameAvailable = false;
+            updateSubmit();
+            return;
+        }
+        usernameChecking = true;
+        usernameFeedback.textContent = 'Checking...';
+        usernameFeedback.className = 'form-text text-muted';
+        fetch('{{ url_for("api_register_check_username") }}?username=' + encodeURIComponent(u))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                usernameAvailable = data.available === true;
+                if (data.error) {
+                    usernameFeedback.textContent = data.error;
+                    usernameFeedback.className = 'form-text text-warning';
+                } else {
+                    usernameFeedback.textContent = data.available ? 'Username is available' : 'Username is not available';
+                    usernameFeedback.className = 'form-text ' + (data.available ? 'text-success' : 'text-danger');
+                }
+            })
+            .catch(function() {
+                usernameFeedback.textContent = 'Unable to verify right now. You can still try to register.';
+                usernameFeedback.className = 'form-text text-warning';
+                usernameAvailable = false;
+            })
+            .finally(function() {
+                usernameChecking = false;
+                updateSubmit();
+            });
+    }
+
+    let usernameDebounce;
+    username.addEventListener('input', function() {
+        clearTimeout(usernameDebounce);
+        usernameDebounce = setTimeout(checkUsername, 400);
+    });
+    username.addEventListener('blur', checkUsername);
+
+    password.addEventListener('input', function() {
+        const r = validatePassword(password.value);
+        passwordValid = r.valid;
+        passwordFeedback.textContent = r.message;
+        passwordFeedback.className = 'small mt-1 ' + (r.valid ? 'text-success' : 'text-danger');
+        updateSubmit();
+    });
+
+    function updateSubmit() {
+        const full = fullName.value.trim() && username.value.trim() && password.value && email.value.trim() && phoneNumber.value.trim() && organizationName.value.trim() && planId.value;
+        const canSubmit = full && usernameAvailable && !usernameChecking && passwordValid && emailVerified;
+        submitBtn.disabled = !canSubmit;
+    }
+
+    fullName.addEventListener('input', updateSubmit);
+    username.addEventListener('input', updateSubmit);
+    password.addEventListener('input', updateSubmit);
+    email.addEventListener('input', function() {
+        emailVerified = false;
+        emailVerifiedBadge.classList.add('d-none');
+        updateSubmit();
+    });
+    phoneNumber.addEventListener('input', updateSubmit);
+    organizationName.addEventListener('input', updateSubmit);
+    planId.addEventListener('change', updateSubmit);
+
+    function startResendCountdown(seconds) {
+        if (resendTimer) clearInterval(resendTimer);
+        resendOtpBtn.disabled = true;
+        let left = seconds;
+        function tick() {
+            if (left <= 0) {
+                clearInterval(resendTimer);
+                resendOtpBtn.disabled = false;
+                resendCountdown.textContent = 'now';
+                return;
+            }
+            const m = Math.floor(left / 60);
+            const s = left % 60;
+            resendCountdown.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+            left--;
+        }
+        tick();
+        resendTimer = setInterval(tick, 1000);
+    }
+
+    sendOtpBtn.addEventListener('click', function() {
+        const em = email.value.trim();
+        if (!em || em.indexOf('@') === -1) {
+            alert('Please enter a valid email address.');
+            return;
+        }
+        sendOtpBtn.disabled = true;
+        sendOtpBtn.textContent = 'Sending...';
+        fetch('{{ url_for("api_register_send_otp") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: em })
+        })
+        .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, json: j }; }); })
+        .then(function(result) {
+            sendOtpBtn.disabled = false;
+            sendOtpBtn.textContent = 'Verify email';
+            if (result.ok && result.json.success) {
+                emailOtpRow.classList.remove('d-none');
+                otpInput.value = '';
+                otpInput.focus();
+                startResendCountdown(300);
+            } else {
+                alert(result.json.message || 'Failed to send OTP');
+            }
+        })
+        .catch(function() {
+            sendOtpBtn.disabled = false;
+            sendOtpBtn.textContent = 'Verify email';
+            alert('Request failed');
+        });
+    });
+
+    verifyOtpBtn.addEventListener('click', function() {
+        const em = email.value.trim();
+        const otp = otpInput.value.trim();
+        if (!em || !otp) {
+            alert('Enter email and OTP');
+            return;
+        }
+        verifyOtpBtn.disabled = true;
+        verifyOtpBtn.textContent = 'Verifying...';
+        fetch('{{ url_for("api_register_verify_otp") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: em, otp: otp })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            verifyOtpBtn.disabled = false;
+            verifyOtpBtn.textContent = 'Verify OTP';
+            if (data.success) {
+                emailVerified = true;
+                emailVerifiedBadge.classList.remove('d-none');
+                emailOtpRow.classList.add('d-none');
+                updateSubmit();
+            } else {
+                alert(data.message || 'Invalid or expired OTP');
+            }
+        })
+        .catch(function() {
+            verifyOtpBtn.disabled = false;
+            verifyOtpBtn.textContent = 'Verify OTP';
+            alert('Request failed');
+        });
+    });
+
+    resendOtpBtn.addEventListener('click', function() {
+        const em = email.value.trim();
+        if (!em) return;
+        resendOtpBtn.disabled = true;
+        fetch('{{ url_for("api_register_send_otp") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: em })
+        })
+        .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, json: j }; }); })
+        .then(function(result) {
+            if (result.ok && result.json.success) {
+                startResendCountdown(300);
+                otpInput.value = '';
+            } else {
+                alert(result.json.message || 'Could not resend');
+                resendOtpBtn.disabled = false;
+            }
+        })
+        .catch(function() {
+            resendOtpBtn.disabled = false;
+            alert('Request failed');
+        });
+    });
+
+    checkUsername();
+    var r = validatePassword(password.value);
+    passwordValid = r.valid;
+    passwordFeedback.textContent = r.message || '';
+    passwordFeedback.className = 'small mt-1 ' + (r.valid ? 'text-success' : 'text-danger');
+    updateSubmit();
+})();
+</script>
+{% endblock %}

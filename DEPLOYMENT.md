@@ -38,6 +38,17 @@
    DATABASE_URL=sqlite:///crm.db
    # Optional: base URL for Integrations page copy buttons (e.g. https://xyz.crm.com). No trailing slash.
    # BASE_URL=https://your-domain.com
+   # Razorpay (for registration payments):
+   # RAZORPAY_KEY_ID=rzp_live_xxx
+   # RAZORPAY_KEY_SECRET=your_secret
+   # RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
+   # Email verification OTP (registration):
+   # MAIL_SERVER=smtp.gmail.com
+   # MAIL_PORT=587
+   # MAIL_USERNAME=your@email.com
+   # MAIL_PASSWORD=your_app_password
+   # MAIL_USE_TLS=true
+   # MAIL_FROM=your@email.com
    ```
 
 ## Optional: Add integration_slug column (existing databases)

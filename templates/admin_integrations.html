@@ -4,6 +4,26 @@
 {% block page_title %}Integrations{% endblock %}
 
 {% block content %}
+<div class="mb-4">
+    <p class="text-muted mb-1">
+        Use your <strong>integration key</strong> in the URLs below (not your admin number). Key: <code id="integrationSlug">{{ integration_slug }}</code>
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-2 py-0" onclick="copyText('integrationSlug', this)" title="Copy integration key">
+            <i class="fas fa-copy"></i> Copy
+        </button>
+    </p>
+    {% if base_url %}
+    <p class="text-muted small mb-0">
+        Base URL: <code id="baseUrlDisplay">{{ base_url }}</code>
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-2 py-0" onclick="copyText('baseUrlDisplay', this)" title="Copy base URL">
+            <i class="fas fa-copy"></i> Copy
+        </button>
+    </p>
+    {% else %}
+    <p class="text-muted small mb-0">
+        Set <code>BASE_URL</code> or <code>SITE_URL</code> in your <code>.env</code> (e.g. <code>https://xyz.crm.com</code>) to see full URLs.
+    </p>
+    {% endif %}
+</div>
 
 {% for ep in endpoints %}
 <div class="card mb-4">

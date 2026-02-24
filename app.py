@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, timedelta
 import os
 import json
+import re
 import secrets
 import string
 from config import config
@@ -78,6 +79,51 @@ def ensure_admin_integration_slug(admin: 'Admin') -> str:
             db.session.rollback()
             admin.integration_slug = None
     raise RuntimeError('Could not assign unique integration_slug to admin')
+
+
+def validate_registration_password(password: str) -> tuple:
+    """Validate password: min 8 len, 1 upper, 1 lower, 1 special, 1 digit. Returns (True, None) or (False, error_msg)."""
+    if len(password) < 8:
+        return False, 'Password must be at least 8 characters'
+    if not re.search(r'[A-Z]', password):
+        return False, 'Password must contain at least one uppercase letter'
+    if not re.search(r'[a-z]', password):
+        return False, 'Password must contain at least one lowercase letter'
+    if not re.search(r'[0-9]', password):
+        return False, 'Password must contain at least one number'
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/\'`~]', password):
+        return False, 'Password must contain at least one special character'
+    return True, None
+
+
+def send_verification_email(to_email: str, otp: str) -> bool:
+    """Send OTP email using SMTP credentials from .env. Returns True on success."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    server = os.environ.get('MAIL_SERVER')
+    port = int(os.environ.get('MAIL_PORT', '587'))
+    username = os.environ.get('MAIL_USERNAME')
+    password = os.environ.get('MAIL_PASSWORD')
+    use_tls = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
+    from_addr = os.environ.get('MAIL_FROM') or username
+    if not server or not username or not password:
+        return False
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = from_addr
+        msg['To'] = to_email
+        msg['Subject'] = 'Your email verification OTP'
+        body = f'Your verification code is: {otp}. It is valid for 5 minutes.'
+        msg.attach(MIMEText(body, 'plain'))
+        with smtplib.SMTP(server, port) as s:
+            if use_tls:
+                s.starttls()
+            s.login(username, password)
+            s.sendmail(from_addr, to_email, msg.as_string())
+        return True
+    except Exception:
+        return False
 
 
 def get_admin_by_integration_identifier(identifier) -> 'Admin':
@@ -222,6 +268,49 @@ class DailyReport(db.Model):
     updated_at = db.Column(db.DateTime, default=get_ist_now, onupdate=get_ist_now)
     __table_args__ = (db.UniqueConstraint('sales_id', 'report_date', name='unique_sales_date'),)
 
+# Payment plans for registration
+class PaymentPlan(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)  # in INR
+    max_users = db.Column(db.Integer, nullable=False)
+    validity = db.Column(db.Integer, nullable=False)  # number of days
+
+# Organization details (one per admin)
+class OrganizationDetails(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False, unique=True)
+    phone_number = db.Column(db.String(20), nullable=False)
+    organization_name = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(255), nullable=True)
+
+# Admin's current plan and renewal
+class AdminPlan(db.Model):
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), primary_key=True)
+    payment_plan_id = db.Column(db.Integer, db.ForeignKey('payment_plan.id'), nullable=False)
+    renewal_date = db.Column(db.Date, nullable=False)
+
+# Temp OTP for email verification (validity 5 minutes)
+class TempOtp(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False, index=True)
+    otp = db.Column(db.String(6), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+# Temp user during registration (before payment and admin creation)
+class TempUser(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    phone_number = db.Column(db.String(20), nullable=False)
+    organization_name = db.Column(db.String(200), nullable=False)
+    payment_plan_id = db.Column(db.Integer, db.ForeignKey('payment_plan.id'), nullable=False)
+    status = db.Column(db.String(50), nullable=False)  # payment_initiated, transaction_completed, user_added_in_db
+    razorpay_order_id = db.Column(db.String(100), unique=True, nullable=True, index=True)
+    razorpay_payment_id = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=get_ist_now)
+
 @login_manager.user_loader
 def load_user(user_id):
     # Prefer the model based on the recorded session user_type to avoid id collisions
@@ -358,6 +447,266 @@ def login():
     
     return render_template('login.html')
 
+
+# Razorpay (optional; used for registration)
+_razorpay_client = None
+def get_razorpay_client():
+    global _razorpay_client
+    if _razorpay_client is None:
+        key_id = os.environ.get('RAZORPAY_KEY_ID')
+        key_secret = os.environ.get('RAZORPAY_KEY_SECRET')
+        if key_id and key_secret:
+            try:
+                import razorpay
+                _razorpay_client = razorpay.Client(auth=(key_id, key_secret))
+            except Exception:
+                pass
+    return _razorpay_client
+
+
+@app.route('/api/register/check-username')
+def api_register_check_username():
+    """Return { available: true/false, error?: str } for real-time username check.
+
+    Frontend only needs to know if a username is already taken by a real Admin.
+    Any in-progress TempUser registrations are handled on final form submit.
+    """
+    username = (request.args.get('username') or '').strip()
+    if not username:
+        return jsonify({'available': False})
+    try:
+        if Admin.query.filter_by(username=username).first():
+            return jsonify({'available': False})
+        return jsonify({'available': True})
+    except Exception:
+        return jsonify({'available': False, 'error': 'Unable to verify username. Please try again.'})
+
+
+@app.route('/api/register/send-otp', methods=['POST'])
+def api_register_send_otp():
+    """Send 6-digit OTP to email. Store in TempOtp with 5 min validity. Resend only after 5 mins."""
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'success': False, 'message': 'Valid email is required'}), 400
+    # Check last OTP for this email: allow resend only if last one is older than 5 mins
+    last = TempOtp.query.filter_by(email=email).order_by(TempOtp.expires_at.desc()).first()
+    now = get_ist_now()
+    if last and last.expires_at > now:
+        return jsonify({'success': False, 'message': 'Please wait until the current OTP expires (5 minutes) before resending'}), 400
+    otp = ''.join(secrets.choice(string.digits) for _ in range(6))
+    expires_at = now + timedelta(minutes=5)
+    TempOtp.query.filter_by(email=email).delete()
+    db.session.add(TempOtp(email=email, otp=otp, expires_at=expires_at))
+    db.session.commit()
+    if not send_verification_email(email, otp):
+        db.session.rollback()
+        return jsonify({'success': False, 'message': 'Failed to send email. Check mail configuration.'}), 500
+    return jsonify({'success': True, 'expires_in_seconds': 300})
+
+
+@app.route('/api/register/verify-otp', methods=['POST'])
+def api_register_verify_otp():
+    """Verify OTP for email. On success set session['register_email_verified'] = email."""
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    otp = (data.get('otp') or '').strip()
+    if not email or not otp:
+        return jsonify({'success': False, 'message': 'Email and OTP required'}), 400
+    row = TempOtp.query.filter_by(email=email).order_by(TempOtp.expires_at.desc()).first()
+    if not row or row.otp != otp:
+        return jsonify({'success': False, 'message': 'Invalid or expired OTP'}), 400
+    if row.expires_at < get_ist_now():
+        return jsonify({'success': False, 'message': 'OTP has expired'}), 400
+    session['register_email_verified'] = email
+    return jsonify({'success': True})
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Registration: form with plan; on submit save TempUser and initiate Razorpay payment."""
+    if request.method == 'GET':
+        plans = PaymentPlan.query.order_by(PaymentPlan.amount).all()
+        return render_template('register.html', plans=plans)
+    # POST
+    full_name = (request.form.get('full_name') or '').strip()
+    username = (request.form.get('username') or '').strip()
+    password = request.form.get('password') or ''
+    email = (request.form.get('email') or '').strip().lower()
+    phone_number = (request.form.get('phone_number') or '').strip()
+    organization_name = (request.form.get('organization_name') or '').strip()
+    plan_id = request.form.get('plan_id')
+    errors = []
+    if not full_name:
+        errors.append('Full name is required')
+    if not username:
+        errors.append('Username is required')
+    if not password:
+        errors.append('Password is required')
+    else:
+        ok, msg = validate_registration_password(password)
+        if not ok:
+            errors.append(msg)
+    if not email or '@' not in email:
+        errors.append('Valid email is required')
+    if session.get('register_email_verified') != email:
+        errors.append('Email must be verified')
+    if not phone_number:
+        errors.append('Phone number is required')
+    if not organization_name:
+        errors.append('Organization name is required')
+    plan = None
+    if plan_id:
+        try:
+            plan = PaymentPlan.query.get(int(plan_id))
+        except (ValueError, TypeError):
+            pass
+    if not plan:
+        errors.append('Please select a plan')
+    if Admin.query.filter_by(username=username).first():
+        errors.append('Username already registered')
+    if TempUser.query.filter_by(username=username).filter(TempUser.status.in_(['payment_initiated', 'transaction_completed'])).first():
+        errors.append('Username already has a registration in progress')
+    if errors:
+        plans = PaymentPlan.query.order_by(PaymentPlan.amount).all()
+        return render_template('register.html', plans=plans, errors=errors,
+                               full_name=full_name, username=username, email=email, phone_number=phone_number,
+                               organization_name=organization_name, plan_id=plan_id)
+    temp_user = TempUser(
+        name=full_name,
+        username=username,
+        password_hash=generate_password_hash(password),
+        email=email,
+        phone_number=phone_number,
+        organization_name=organization_name,
+        payment_plan_id=plan.id,
+        status='payment_initiated',
+    )
+    db.session.add(temp_user)
+    db.session.commit()
+    razorpay_key_id = os.environ.get('RAZORPAY_KEY_ID', '')
+    order_id = None
+    amount_paise = int(float(plan.amount) * 100)
+    client = get_razorpay_client()
+    if client:
+        try:
+            order = client.order.create({
+                'amount': amount_paise,
+                'currency': 'INR',
+                'receipt': f'temp_{temp_user.id}',
+                'notes': {'temp_user_id': str(temp_user.id)},
+            })
+            order_id = order.get('id')
+            if order_id:
+                temp_user.razorpay_order_id = order_id
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Payment setup failed: {str(e)}')
+            return redirect(url_for('register'))
+    else:
+        flash('Payment is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.')
+        return redirect(url_for('register'))
+    session.pop('register_email_verified', None)
+    return render_template('register_pay.html',
+                           order_id=order_id, amount=amount_paise, currency='INR',
+                           razorpay_key_id=razorpay_key_id,
+                           plan_name=f'Plan (₹{plan.amount}, {plan.validity} days)')
+
+
+def _complete_registration_after_payment(temp_user: 'TempUser', payment_id: str) -> bool:
+    """Create Admin, OrganizationDetails, AdminPlan from TempUser in a transaction. Retries on failure. Returns True if done."""
+    plan = PaymentPlan.query.get(temp_user.payment_plan_id)
+    if not plan:
+        return False
+    renewal_date = (get_ist_now().date() + timedelta(days=plan.validity)) if plan.validity else get_ist_now().date()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            new_admin = Admin(
+                name=temp_user.name,
+                username=temp_user.username,
+                password_hash=temp_user.password_hash,
+                password_plain_text='',  # not stored after registration
+            )
+            new_admin.integration_slug = _generate_integration_slug()
+            db.session.add(new_admin)
+            db.session.flush()
+            bucket_sales = Sales(
+                admin_id=new_admin.id,
+                name='Admin Queue',
+                username=f'admin_queue_{new_admin.id}',
+                password_hash=generate_password_hash(f'admin_queue_{new_admin.id}'),
+            )
+            db.session.add(bucket_sales)
+            db.session.flush()
+            new_admin.admin_sales_id = bucket_sales.id
+            org = OrganizationDetails(
+                admin_id=new_admin.id,
+                phone_number=temp_user.phone_number,
+                organization_name=temp_user.organization_name,
+                email=getattr(temp_user, 'email', None) or None,
+            )
+            db.session.add(org)
+            admin_plan = AdminPlan(
+                admin_id=new_admin.id,
+                payment_plan_id=plan.id,
+                renewal_date=renewal_date,
+            )
+            db.session.add(admin_plan)
+            temp_user.status = 'user_added_in_db'
+            temp_user.razorpay_payment_id = payment_id
+            db.session.commit()
+            return True
+        except Exception as e:
+            db.session.rollback()
+            if attempt == max_retries - 1:
+                print(f"Registration completion failed after {max_retries} attempts: {e}")
+                return False
+    return False
+
+
+@app.route('/api/webhook/razorpay', methods=['POST'])
+def razorpay_webhook():
+    """Razorpay webhook: on payment.captured, complete registration (Admin + OrganizationDetails + AdminPlan)."""
+    webhook_secret = os.environ.get('RAZORPAY_WEBHOOK_SECRET')
+    if not webhook_secret:
+        return jsonify({'status': 'error', 'message': 'Webhook not configured'}), 500
+    raw_body = request.get_data()
+    body_str = raw_body.decode('utf-8') if isinstance(raw_body, bytes) else raw_body
+    signature = request.headers.get('X-Razorpay-Signature', '')
+    client = get_razorpay_client()
+    if not client:
+        return jsonify({'status': 'error', 'message': 'Razorpay not configured'}), 500
+    try:
+        client.utility.verify_webhook_signature(body_str, signature, webhook_secret)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': 'Invalid signature'}), 400
+    try:
+        data = json.loads(body_str)
+    except Exception:
+        return jsonify({'status': 'error', 'message': 'Invalid JSON'}), 400
+    event = data.get('event')
+    if event != 'payment.captured':
+        return jsonify({'status': 'ok'}), 200
+    payload = data.get('payload', {})
+    payment_entity = payload.get('payment', {}).get('entity', payload.get('entity', {}))
+    order_id = payment_entity.get('order_id')
+    payment_id = payment_entity.get('id', '')
+    if not order_id:
+        return jsonify({'status': 'error', 'message': 'No order_id'}), 400
+    temp_user = TempUser.query.filter_by(razorpay_order_id=order_id).first()
+    if not temp_user:
+        return jsonify({'status': 'error', 'message': 'TempUser not found'}), 404
+    if temp_user.status == 'user_added_in_db':
+        return jsonify({'status': 'ok', 'message': 'Already processed'}), 200
+    temp_user.status = 'transaction_completed'
+    db.session.commit()
+    if not _complete_registration_after_payment(temp_user, payment_id):
+        return jsonify({'status': 'error', 'message': 'Failed to create admin'}), 500
+    return jsonify({'status': 'ok'}), 200
+
+
 @app.route('/logout')
 @login_required
 def logout():
@@ -459,6 +808,32 @@ def add_admin():
             return redirect(url_for('super_admin_dashboard'))
     
     return render_template('add_admin.html')
+
+
+@app.route('/super-admin/payment-plans', methods=['GET', 'POST'])
+@login_required
+def payment_plans():
+    if session.get('user_type') != 'super_admin':
+        flash('Access denied')
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        try:
+            amount = float(request.form.get('amount', 0))
+            max_users = int(request.form.get('max_users', 0))
+            validity = int(request.form.get('validity', 0))
+        except (ValueError, TypeError):
+            flash('Invalid amount, max users or validity')
+            return redirect(url_for('payment_plans'))
+        if amount <= 0 or max_users <= 0 or validity <= 0:
+            flash('Amount, max users and validity must be positive')
+            return redirect(url_for('payment_plans'))
+        db.session.add(PaymentPlan(amount=amount, max_users=max_users, validity=validity))
+        db.session.commit()
+        flash('Payment plan added successfully')
+        return redirect(url_for('payment_plans'))
+    plans = PaymentPlan.query.order_by(PaymentPlan.amount).all()
+    return render_template('payment_plans.html', plans=plans)
+
 
 @app.route('/super-admin/remove-super-admin/<int:id>')
 @login_required
