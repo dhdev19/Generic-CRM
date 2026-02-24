@@ -18,7 +18,16 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 def get_ist_now():
     """Get current time in IST (Indian Standard Time, GMT+5:30)"""
-    return datetime.now(IST) 
+    return datetime.now(IST)
+
+
+def _db_datetime_aware(dt):
+    """Return datetime comparable with get_ist_now(). DB often returns naive; treat as IST."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=IST)
+    return dt 
 # Firebase Admin SDK (optional; initialized if creds provided)
 firebase_admin = None
 try:
@@ -96,8 +105,8 @@ def validate_registration_password(password: str) -> tuple:
     return True, None
 
 
-def send_verification_email(to_email: str, otp: str) -> bool:
-    """Send OTP email using SMTP credentials from .env. Returns True on success."""
+def send_verification_email(to_email: str, otp: str) -> tuple:
+    """Send OTP email using SMTP credentials from .env. Returns (True, None) on success or (False, error_message)."""
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
@@ -108,7 +117,7 @@ def send_verification_email(to_email: str, otp: str) -> bool:
     use_tls = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
     from_addr = os.environ.get('MAIL_FROM') or username
     if not server or not username or not password:
-        return False
+        return False, 'Mail not configured (set MAIL_SERVER, MAIL_USERNAME, MAIL_PASSWORD in .env)'
     try:
         msg = MIMEMultipart()
         msg['From'] = from_addr
@@ -116,14 +125,22 @@ def send_verification_email(to_email: str, otp: str) -> bool:
         msg['Subject'] = 'Your email verification OTP'
         body = f'Your verification code is: {otp}. It is valid for 5 minutes.'
         msg.attach(MIMEText(body, 'plain'))
-        with smtplib.SMTP(server, port) as s:
-            if use_tls:
-                s.starttls()
-            s.login(username, password)
-            s.sendmail(from_addr, to_email, msg.as_string())
-        return True
-    except Exception:
-        return False
+        # Port 465 uses implicit SSL (SMTPS); 587 uses STARTTLS
+        if port == 465:
+            with smtplib.SMTP_SSL(server, port) as s:
+                s.login(username, password)
+                s.sendmail(from_addr, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(server, port) as s:
+                if use_tls:
+                    s.starttls()
+                s.login(username, password)
+                s.sendmail(from_addr, to_email, msg.as_string())
+        return True, None
+    except Exception as e:
+        err = str(e)
+        print(f'[send_verification_email] failed: {err}')
+        return False, err or 'Failed to send email'
 
 
 def get_admin_by_integration_identifier(identifier) -> 'Admin':
@@ -492,16 +509,26 @@ def api_register_send_otp():
     # Check last OTP for this email: allow resend only if last one is older than 5 mins
     last = TempOtp.query.filter_by(email=email).order_by(TempOtp.expires_at.desc()).first()
     now = get_ist_now()
-    if last and last.expires_at > now:
-        return jsonify({'success': False, 'message': 'Please wait until the current OTP expires (5 minutes) before resending'}), 400
+    if last:
+        expires_at = _db_datetime_aware(last.expires_at)
+        if expires_at > now:
+            delta = expires_at - now
+            seconds_left = max(0, int(delta.total_seconds()))
+            print(f'[send-otp] 400: resend not yet allowed for {email!r}, wait {seconds_left}s')
+            return jsonify({
+                'success': False,
+                'message': 'Please wait until the current OTP expires (5 minutes) before resending.',
+                'resend_after_seconds': seconds_left
+            }), 400
     otp = ''.join(secrets.choice(string.digits) for _ in range(6))
     expires_at = now + timedelta(minutes=5)
     TempOtp.query.filter_by(email=email).delete()
     db.session.add(TempOtp(email=email, otp=otp, expires_at=expires_at))
     db.session.commit()
-    if not send_verification_email(email, otp):
+    ok, err_msg = send_verification_email(email, otp)
+    if not ok:
         db.session.rollback()
-        return jsonify({'success': False, 'message': 'Failed to send email. Check mail configuration.'}), 500
+        return jsonify({'success': False, 'message': err_msg or 'Failed to send email. Check mail configuration.'}), 500
     return jsonify({'success': True, 'expires_in_seconds': 300})
 
 
@@ -516,7 +543,7 @@ def api_register_verify_otp():
     row = TempOtp.query.filter_by(email=email).order_by(TempOtp.expires_at.desc()).first()
     if not row or row.otp != otp:
         return jsonify({'success': False, 'message': 'Invalid or expired OTP'}), 400
-    if row.expires_at < get_ist_now():
+    if _db_datetime_aware(row.expires_at) < get_ist_now():
         return jsonify({'success': False, 'message': 'OTP has expired'}), 400
     session['register_email_verified'] = email
     return jsonify({'success': True})

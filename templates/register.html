@@ -192,6 +192,7 @@
     email.addEventListener('input', function() {
         emailVerified = false;
         emailVerifiedBadge.classList.add('d-none');
+        sendOtpBtn.classList.remove('d-none');
         updateSubmit();
     });
     phoneNumber.addEventListener('input', updateSubmit);
@@ -242,6 +243,10 @@
                 startResendCountdown(300);
             } else {
                 alert(result.json.message || 'Failed to send OTP');
+                if (result.json.resend_after_seconds > 0) {
+                    emailOtpRow.classList.remove('d-none');
+                    startResendCountdown(result.json.resend_after_seconds);
+                }
             }
         })
         .catch(function() {
@@ -273,6 +278,7 @@
                 emailVerified = true;
                 emailVerifiedBadge.classList.remove('d-none');
                 emailOtpRow.classList.add('d-none');
+                sendOtpBtn.classList.add('d-none');
                 updateSubmit();
             } else {
                 alert(data.message || 'Invalid or expired OTP');
