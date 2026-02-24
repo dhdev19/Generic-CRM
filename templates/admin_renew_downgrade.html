@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Adjust Users for New Plan - CRM System{% endblock %}
+{% block page_title %}Adjust Users for New Plan{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-10 col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users-cog me-2"></i>Adjust Sales Users</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    You selected a plan with <strong>{{ new_plan.max_users }} users</strong>, but you currently have
+                    <strong>{{ total_sales }}</strong> users.
+                </p>
+                <p>
+                    Please select at least <strong>{{ required_to_remove }}</strong> sales persons to remove.
+                    All their leads and follow-ups will be reassigned to your Admin Queue user before deletion.
+                </p>
+
+                <form method="POST" action="{{ url_for('admin_renew_plan_confirm') }}">
+                    <input type="hidden" name="plan_id" value="{{ new_plan.id }}">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;"></th>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for s in removable_sales %}
+                                <tr>
+                                    <td>
+                                        <input type="checkbox" name="sales_ids" value="{{ s.id }}">
+                                    </td>
+                                    <td>{{ s.name }}</td>
+                                    <td class="text-muted small">{{ s.username }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-3">Confirm and Renew Plan</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Renew Plan - CRM System{% endblock %}
+{% block page_title %}Renew Plan{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-8 col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sync-alt me-2"></i>Renew Subscription</h5>
+            </div>
+            <div class="card-body">
+                {% if current_plan %}
+                    <p class="text-muted">
+                        Current plan: <strong>{{ current_plan.max_users }} users</strong>{% if current_renewal_date %},
+                        expires on <strong>{{ current_renewal_date }}</strong>{% endif %}.
+                    </p>
+                {% endif %}
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="plan_id" class="form-label">Select a plan</label>
+                        <select class="form-select" id="plan_id" name="plan_id" required>
+                            <option value="">Choose...</option>
+                            {% for p in plans %}
+                                <option value="{{ p.id }}"
+                                    {% if current_plan and current_plan.id == p.id %}selected{% endif %}>
+                                    ₹{{ p.amount }} — {{ p.max_users }} users, {{ p.validity }} days
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Renew Plan</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

@@ -103,6 +103,16 @@
                                 </a>
                             </li>
                         {% elif session.user_type == 'admin' %}
+                            {% if admin_plan_max_users is defined and admin_plan_days_remaining is defined %}
+                                <div class="text-white-50 small mb-2">
+                                    {{ admin_plan_max_users }} Users Plan: {{ admin_plan_days_remaining }} days remaining
+                                </div>
+                                {% if admin_plan_days_remaining > 0 and admin_plan_days_remaining <= 7 %}
+                                    <div class="mb-2">
+                                        <a class="btn btn-sm btn-outline-light w-100" href="{{ url_for('admin_renew_plan') }}">Renew Plan</a>
+                                    </div>
+                                {% endif %}
+                            {% endif %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('admin_dashboard') }}">
                                     <i class="fas fa-tachometer-alt me-2"></i>Dashboard

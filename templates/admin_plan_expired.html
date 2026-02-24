@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Plan Expired - CRM System{% endblock %}
+{% block page_title %}Plan Expired{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-8 col-lg-6">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3 class="text-danger mb-3">Your Plan Has Expired</h3>
+                <p class="mb-3">
+                    Your subscription plan has expired{% if days_overdue is defined %} {{ days_overdue }} days ago{% endif %}.
+                </p>
+                <p class="text-muted">
+                    Please renew your plan to continue using the dashboard.
+                </p>
+                <a href="{{ url_for('admin_renew_plan') }}" class="btn btn-primary mt-2 me-2">Renew Plan</a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary mt-2">Logout</a>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+

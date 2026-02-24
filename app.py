@@ -306,6 +306,17 @@ class AdminPlan(db.Model):
     payment_plan_id = db.Column(db.Integer, db.ForeignKey('payment_plan.id'), nullable=False)
     renewal_date = db.Column(db.Date, nullable=False)
 
+
+# Pending plan renewal (payment not yet captured)
+class PendingRenewal(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False, index=True)
+    payment_plan_id = db.Column(db.Integer, db.ForeignKey('payment_plan.id'), nullable=False)
+    razorpay_order_id = db.Column(db.String(100), unique=True, nullable=True, index=True)
+    sales_ids_json = db.Column(db.Text, nullable=False, default='[]')  # JSON list of sales ids to remove
+    created_at = db.Column(db.DateTime, default=get_ist_now)
+
+
 # Temp OTP for email verification (validity 5 minutes)
 class TempOtp(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -345,6 +356,78 @@ def load_user(user_id):
     # Fallback (very unlikely needed, but keeps backward compatibility)
     user = db.session.get(SuperAdmin, uid) or db.session.get(Admin, uid) or db.session.get(Sales, uid)
     return user
+
+
+def _get_admin_plan_state(admin_id: int):
+    """Return plan state dict for an admin or None if no active plan."""
+    admin_plan = AdminPlan.query.get(admin_id)
+    if not admin_plan:
+        return None
+    plan = PaymentPlan.query.get(admin_plan.payment_plan_id)
+    if not plan:
+        return None
+    today = get_ist_now().date()
+    days_until_expiry = (admin_plan.renewal_date - today).days
+    days_since_expiry = (today - admin_plan.renewal_date).days
+    return {
+        'admin_plan': admin_plan,
+        'plan': plan,
+        'days_until_expiry': days_until_expiry,
+        'days_since_expiry': days_since_expiry,
+    }
+
+
+def _reassign_and_delete_sales_for_admin(admin_id: int, sales_ids):
+    """Reassign all data from given sales_ids to admin bucket sales, then delete those sales."""
+    admin_sales_id = get_admin_sales_id(admin_id)
+    if not admin_sales_id:
+        return False
+    try:
+        ids = [int(sid) for sid in sales_ids]
+    except (TypeError, ValueError):
+        return False
+    try:
+        for sid in ids:
+            sales = Sales.query.filter_by(id=sid, admin_id=admin_id).first()
+            if not sales or sales.id == admin_sales_id:
+                continue
+            # Reassign queries and follow-ups to admin bucket
+            Query.query.filter_by(admin_id=admin_id, sales_id=sid).update(
+                {'sales_id': admin_sales_id}, synchronize_session=False
+            )
+            FollowUp.query.filter_by(admin_id=admin_id, sales_id=sid).update(
+                {'sales_id': admin_sales_id}, synchronize_session=False
+            )
+            # Delete device tokens for this sales
+            DeviceToken.query.filter_by(sales_id=sid).delete()
+            # Finally delete the sales user
+            db.session.delete(sales)
+        db.session.commit()
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error during downgrade reassign/delete for admin {admin_id}: {e}")
+        return False
+
+
+@app.context_processor
+def inject_admin_plan_summary():
+    """Inject plan max_users and days_remaining for admin sidebar."""
+    try:
+        if current_user.is_authenticated and isinstance(current_user, Admin):
+            state = _get_admin_plan_state(current_user.id)
+            if state:
+                remaining = state['days_until_expiry']
+                if remaining < 0:
+                    remaining = 0
+                return {
+                    'admin_plan_max_users': state['plan'].max_users,
+                    'admin_plan_days_remaining': remaining,
+                }
+    except Exception:
+        # Do not break templates if something goes wrong here
+        return {}
+    return {}
 
 @app.before_request
 def restore_session_user_type_for_authenticated_user():
@@ -441,18 +524,22 @@ def login():
             user = Sales.query.filter_by(username=username).first()
         
         if user and check_password_hash(user.password_hash, password):
+            # Block Sales login if their admin's plan expired more than 3 days ago
+            if user_type == 'sales':
+                state = _get_admin_plan_state(user.admin_id)
+                if state and state['days_since_expiry'] > 3:
+                    flash('Your admin plan has expired. Please ask them to renew.')
+                    return render_template('login.html')
+
             login_user(user, remember=True)
             session['user_type'] = user_type
             session['user_id'] = user.id
-            
-            # Force session to be saved
             session.modified = True
-            
-            # Debug logging in production
+
             if app.config.get('FLASK_ENV') == 'production':
                 print(f"Login successful: {user_type} - {username}")
                 print(f"Session data: {dict(session)}")
-            
+
             if user_type == 'super_admin':
                 return redirect(url_for('super_admin_dashboard'))
             elif user_type == 'admin':
@@ -545,6 +632,8 @@ def api_register_verify_otp():
         return jsonify({'success': False, 'message': 'Invalid or expired OTP'}), 400
     if _db_datetime_aware(row.expires_at) < get_ist_now():
         return jsonify({'success': False, 'message': 'OTP has expired'}), 400
+    TempOtp.query.filter_by(email=email).delete()
+    db.session.commit()
     session['register_email_verified'] = email
     return jsonify({'success': True})
 
@@ -684,6 +773,8 @@ def _complete_registration_after_payment(temp_user: 'TempUser', payment_id: str)
             temp_user.status = 'user_added_in_db'
             temp_user.razorpay_payment_id = payment_id
             db.session.commit()
+            db.session.delete(temp_user)
+            db.session.commit()
             return True
         except Exception as e:
             db.session.rollback()
@@ -722,6 +813,43 @@ def razorpay_webhook():
     payment_id = payment_entity.get('id', '')
     if not order_id:
         return jsonify({'status': 'error', 'message': 'No order_id'}), 400
+
+    # Plan renewal: update AdminPlan after payment
+    pending_renewal = PendingRenewal.query.filter_by(razorpay_order_id=order_id).first()
+    if pending_renewal:
+        try:
+            plan = PaymentPlan.query.get(pending_renewal.payment_plan_id)
+            if not plan:
+                return jsonify({'status': 'error', 'message': 'Plan not found'}), 400
+            sales_ids = json.loads(pending_renewal.sales_ids_json or '[]')
+            if sales_ids and not _reassign_and_delete_sales_for_admin(pending_renewal.admin_id, sales_ids):
+                return jsonify({'status': 'error', 'message': 'Failed to adjust sales for renewal'}), 500
+            # Add plan validity: from existing expiry if not yet expired, else from today (full period)
+            today = get_ist_now().date()
+            state = _get_admin_plan_state(pending_renewal.admin_id)
+            if state:
+                existing_expiry = state['admin_plan'].renewal_date
+                if existing_expiry >= today:
+                    renewal_date = existing_expiry + timedelta(days=plan.validity)
+                else:
+                    renewal_date = today + timedelta(days=plan.validity)
+                state['admin_plan'].payment_plan_id = plan.id
+                state['admin_plan'].renewal_date = renewal_date
+            else:
+                renewal_date = today + timedelta(days=plan.validity)
+                db.session.add(AdminPlan(
+                    admin_id=pending_renewal.admin_id,
+                    payment_plan_id=plan.id,
+                    renewal_date=renewal_date,
+                ))
+            db.session.delete(pending_renewal)
+            db.session.commit()
+            return jsonify({'status': 'ok'}), 200
+        except Exception as e:
+            db.session.rollback()
+            print(f"Renewal webhook error: {e}")
+            return jsonify({'status': 'error', 'message': 'Renewal failed'}), 500
+
     temp_user = TempUser.query.filter_by(razorpay_order_id=order_id).first()
     if not temp_user:
         return jsonify({'status': 'error', 'message': 'TempUser not found'}), 404
@@ -862,6 +990,173 @@ def payment_plans():
     return render_template('payment_plans.html', plans=plans)
 
 
+@app.route('/admin/renew-plan', methods=['GET', 'POST'])
+@login_required
+def admin_renew_plan():
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+
+    plans = PaymentPlan.query.order_by(PaymentPlan.amount).all()
+    state = _get_admin_plan_state(current_user.id)
+    current_plan = state['plan'] if state else None
+    current_renewal_date = state['admin_plan'].renewal_date if state else None
+
+    if request.method == 'POST':
+        plan_id = request.form.get('plan_id')
+        try:
+            new_plan = PaymentPlan.query.get(int(plan_id)) if plan_id else None
+        except (TypeError, ValueError):
+            new_plan = None
+        if not new_plan:
+            flash('Please select a valid plan')
+            return render_template('admin_renew_plan.html', plans=plans, current_plan=current_plan, current_renewal_date=current_renewal_date)
+
+        total_sales = Sales.query.filter_by(admin_id=current_user.id).count()
+        if total_sales > new_plan.max_users:
+            # Need to bring users within limit before applying downgrade
+            admin_sales_id = get_admin_sales_id(current_user.id)
+            removable_sales = Sales.query.filter(
+                Sales.admin_id == current_user.id,
+                Sales.id != admin_sales_id
+            ).all()
+            required_to_remove = total_sales - new_plan.max_users
+            flash(f'You are downgrading to a plan with max {new_plan.max_users} users. '
+                  f'Please select at least {required_to_remove} sales persons to remove.')
+            return render_template(
+                'admin_renew_downgrade.html',
+                new_plan=new_plan,
+                removable_sales=removable_sales,
+                required_to_remove=required_to_remove,
+                total_sales=total_sales,
+                current_plan=current_plan,
+            )
+
+        # No downgrade: create pending renewal and redirect to payment
+        pending = PendingRenewal(
+            admin_id=current_user.id,
+            payment_plan_id=new_plan.id,
+            sales_ids_json='[]',
+        )
+        db.session.add(pending)
+        db.session.commit()
+        amount_paise = int(float(new_plan.amount) * 100)
+        client = get_razorpay_client()
+        if not client:
+            db.session.delete(pending)
+            db.session.commit()
+            flash('Payment is not configured. Please contact support.')
+            return redirect(url_for('admin_renew_plan'))
+        try:
+            order = client.order.create({
+                'amount': amount_paise,
+                'currency': 'INR',
+                'receipt': f'renew_{pending.id}',
+                'notes': {'type': 'renewal', 'pending_renewal_id': str(pending.id)},
+            })
+            order_id = order.get('id')
+            if order_id:
+                pending.razorpay_order_id = order_id
+                db.session.commit()
+                razorpay_key_id = os.environ.get('RAZORPAY_KEY_ID', '')
+                return render_template(
+                    'admin_renew_pay.html',
+                    order_id=order_id,
+                    amount=amount_paise,
+                    currency='INR',
+                    razorpay_key_id=razorpay_key_id,
+                    plan_name=f'Renew: {new_plan.max_users} users, {new_plan.validity} days — ₹{new_plan.amount}',
+                )
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Payment setup failed: {str(e)}')
+            return redirect(url_for('admin_renew_plan'))
+        flash('Could not create payment order')
+        return redirect(url_for('admin_renew_plan'))
+
+    return render_template('admin_renew_plan.html', plans=plans, current_plan=current_plan, current_renewal_date=current_renewal_date)
+
+
+@app.route('/admin/renew-plan/confirm', methods=['POST'])
+@login_required
+def admin_renew_plan_confirm():
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+
+    plan_id = request.form.get('plan_id')
+    selected_ids = request.form.getlist('sales_ids')
+    try:
+        new_plan = PaymentPlan.query.get(int(plan_id)) if plan_id else None
+    except (TypeError, ValueError):
+        new_plan = None
+    if not new_plan:
+        flash('Invalid plan selected')
+        return redirect(url_for('admin_renew_plan'))
+
+    total_sales = Sales.query.filter_by(admin_id=current_user.id).count()
+    required_to_remove = max(0, total_sales - new_plan.max_users)
+    if required_to_remove > 0 and len(selected_ids) < required_to_remove:
+        flash(f'Please select at least {required_to_remove} sales persons to remove.')
+        admin_sales_id = get_admin_sales_id(current_user.id)
+        removable_sales = Sales.query.filter(
+            Sales.admin_id == current_user.id,
+            Sales.id != admin_sales_id
+        ).all()
+        state = _get_admin_plan_state(current_user.id)
+        current_plan = state['plan'] if state else None
+        return render_template(
+            'admin_renew_downgrade.html',
+            new_plan=new_plan,
+            removable_sales=removable_sales,
+            required_to_remove=required_to_remove,
+            total_sales=total_sales,
+            current_plan=current_plan,
+        )
+
+    # Create pending renewal and redirect to payment; reassign/delete happens in webhook after payment
+    pending = PendingRenewal(
+        admin_id=current_user.id,
+        payment_plan_id=new_plan.id,
+        sales_ids_json=json.dumps(selected_ids),
+    )
+    db.session.add(pending)
+    db.session.commit()
+    amount_paise = int(float(new_plan.amount) * 100)
+    client = get_razorpay_client()
+    if not client:
+        db.session.delete(pending)
+        db.session.commit()
+        flash('Payment is not configured. Please contact support.')
+        return redirect(url_for('admin_renew_plan'))
+    try:
+        order = client.order.create({
+            'amount': amount_paise,
+            'currency': 'INR',
+            'receipt': f'renew_{pending.id}',
+            'notes': {'type': 'renewal', 'pending_renewal_id': str(pending.id)},
+        })
+        order_id = order.get('id')
+        if order_id:
+            pending.razorpay_order_id = order_id
+            db.session.commit()
+            razorpay_key_id = os.environ.get('RAZORPAY_KEY_ID', '')
+            return render_template(
+                'admin_renew_pay.html',
+                order_id=order_id,
+                amount=amount_paise,
+                currency='INR',
+                razorpay_key_id=razorpay_key_id,
+                plan_name=f'Renew: {new_plan.max_users} users, {new_plan.validity} days — ₹{new_plan.amount}',
+            )
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Payment setup failed: {str(e)}')
+        return redirect(url_for('admin_renew_plan'))
+    flash('Could not create payment order')
+    return redirect(url_for('admin_renew_plan'))
+
+
 @app.route('/super-admin/remove-super-admin/<int:id>')
 @login_required
 def remove_super_admin(id):
@@ -913,7 +1208,16 @@ def admin_dashboard():
     if session.get('user_type') != 'admin':
         flash('Access denied')
         return redirect(url_for('index'))
-    
+
+    # If plan expired more than 3 days ago, show expiry page instead of dashboard
+    state = _get_admin_plan_state(current_user.id)
+    if state and state['days_since_expiry'] > 3:
+        return render_template(
+            'admin_plan_expired.html',
+            days_overdue=state['days_since_expiry'],
+            max_users=state['plan'].max_users,
+            renewal_date=state['admin_plan'].renewal_date,
+        )
     sales_persons = Sales.query.filter_by(admin_id=current_user.id).all()
     
     # Search parameter
@@ -1066,7 +1370,20 @@ def add_sales():
     if session.get('user_type') != 'admin':
         flash('Access denied')
         return redirect(url_for('index'))
-    
+
+    # Enforce plan max_users limit (includes the admin's own bucket sales user)
+    admin_plan = AdminPlan.query.get(current_user.id)
+    max_users = None
+    if admin_plan:
+        plan = PaymentPlan.query.get(admin_plan.payment_plan_id)
+        if plan:
+            max_users = plan.max_users
+    if max_users is not None:
+        current_users_count = Sales.query.filter_by(admin_id=current_user.id).count()
+        if current_users_count >= max_users:
+            flash(f'You have reached your plan limit of {max_users} users.')
+            return redirect(url_for('admin_dashboard'))
+
     if request.method == 'POST':
         name = request.form['name']
         username = request.form['username']
@@ -2582,11 +2899,25 @@ def _send_fcm_with_fallback(token_rows, id_attr: str, title: str, body: str, dat
             print(f"FCM stale token cleanup error for {owner_label}: {cleanup_exc}")
     return 0
 
+def _admin_plan_is_valid(admin_id: int) -> bool:
+    """Return True if admin has a plan and it has not expired (renewal_date >= today)."""
+    state = _get_admin_plan_state(admin_id)
+    if not state:
+        return False
+    return state['days_until_expiry'] >= 0
+
+
 def send_notification_to_sales_device(sales_id: int, title: str, body: str, data: dict) -> int:
+    sales = Sales.query.get(sales_id)
+    if not sales or not _admin_plan_is_valid(sales.admin_id):
+        return 0
     token_rows = DeviceToken.query.filter_by(sales_id=sales_id, is_active=True).order_by(DeviceToken.updated_at.desc()).all()
     return _send_fcm_with_fallback(token_rows, "sales_id", title, body, data, "sales_id")
 
+
 def send_notification_to_admin_device(admin_id: int, title: str, body: str, data: dict) -> int:
+    if not _admin_plan_is_valid(admin_id):
+        return 0
     token_rows = AdminDeviceToken.query.filter_by(admin_id=admin_id, is_active=True).order_by(AdminDeviceToken.updated_at.desc()).all()
     return _send_fcm_with_fallback(token_rows, "admin_id", title, body, data, "admin_id")
 
