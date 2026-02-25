@@ -122,7 +122,7 @@ def send_verification_email(to_email: str, otp: str) -> tuple:
         msg = MIMEMultipart()
         msg['From'] = from_addr
         msg['To'] = to_email
-        msg['Subject'] = 'Your email verification OTP'
+        msg['Subject'] = 'Your email verification OTP for Digital Homeez CRM'
         body = f'Your verification code is: {otp}. It is valid for 5 minutes.'
         msg.attach(MIMEText(body, 'plain'))
         # Port 465 uses implicit SSL (SMTPS); 587 uses STARTTLS
@@ -143,6 +143,43 @@ def send_verification_email(to_email: str, otp: str) -> tuple:
         return False, err or 'Failed to send email'
 
 
+def send_password_reset_otp_email(to_email: str, otp: str) -> tuple:
+    """Send password reset OTP email. Returns (True, None) on success or (False, error_message)."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    server = os.environ.get('MAIL_SERVER')
+    port = int(os.environ.get('MAIL_PORT', '587'))
+    username = os.environ.get('MAIL_USERNAME')
+    password = os.environ.get('MAIL_PASSWORD')
+    use_tls = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
+    from_addr = os.environ.get('MAIL_FROM') or username
+    if not server or not username or not password:
+        return False, 'Mail not configured (set MAIL_SERVER, MAIL_USERNAME, MAIL_PASSWORD in .env)'
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = from_addr
+        msg['To'] = to_email
+        msg['Subject'] = 'Password reset OTP - Digital Homeez CRM'
+        body = f'Your password reset code is: {otp}. It is valid for 5 minutes.'
+        msg.attach(MIMEText(body, 'plain'))
+        if port == 465:
+            with smtplib.SMTP_SSL(server, port) as s:
+                s.login(username, password)
+                s.sendmail(from_addr, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(server, port) as s:
+                if use_tls:
+                    s.starttls()
+                s.login(username, password)
+                s.sendmail(from_addr, to_email, msg.as_string())
+        return True, None
+    except Exception as e:
+        err = str(e)
+        print(f'[send_password_reset_otp_email] failed: {err}')
+        return False, err or 'Failed to send email'
+
+
 def get_admin_by_integration_identifier(identifier) -> 'Admin':
     """Resolve Admin by numeric id or integration_slug. Returns None if not found."""
     try:
@@ -151,6 +188,27 @@ def get_admin_by_integration_identifier(identifier) -> 'Admin':
     except (ValueError, TypeError):
         pass
     return Admin.query.filter_by(integration_slug=identifier).first()
+
+
+def find_user_by_email(email: str):
+    """Find (user_type, user_id) by email. Admin via OrganizationDetails, Sales via Sales.email. Returns None if not found."""
+    if not email or '@' not in email:
+        return None
+    email_lower = email.strip().lower()
+    org = OrganizationDetails.query.filter(
+        OrganizationDetails.email.isnot(None),
+        db.func.lower(OrganizationDetails.email) == email_lower
+    ).first()
+    if org:
+        return ('admin', org.admin_id)
+    sales = Sales.query.filter(
+        Sales.email.isnot(None),
+        db.func.lower(Sales.email) == email_lower
+    ).first()
+    if sales:
+        return ('sales', sales.id)
+    return None
+
 
 # Standard lead sources used across forms and analytics.
 SOURCE_OPTIONS = [
@@ -225,6 +283,7 @@ class Sales(UserMixin, db.Model):
     name = db.Column(db.String(100), nullable=False)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), nullable=True)  # optional, for forgot-password
 
 class Query(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -323,6 +382,17 @@ class TempOtp(db.Model):
     email = db.Column(db.String(255), nullable=False, index=True)
     otp = db.Column(db.String(6), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
+
+
+# OTP for password reset (validity 5 minutes). Tied to user_type and user_id for updating password.
+class PasswordResetOtp(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False, index=True)
+    otp = db.Column(db.String(6), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    user_type = db.Column(db.String(20), nullable=False)  # 'admin' or 'sales'
+    user_id = db.Column(db.Integer, nullable=False)
+
 
 # Temp user during registration (before payment and admin creation)
 class TempUser(db.Model):
@@ -550,6 +620,100 @@ def login():
         flash('Invalid username or password')
     
     return render_template('login.html')
+
+
+@app.route('/forgot-password')
+def forgot_password_page():
+    """Reset password flow: enter email → OTP → new password."""
+    return render_template('reset_password.html')
+
+
+@app.route('/api/forgot-password/send-otp', methods=['POST'])
+def api_forgot_password_send_otp():
+    """Send 6-digit OTP to email if it exists in Admin (OrganizationDetails) or Sales. Valid 5 mins."""
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'success': False, 'message': 'Valid email is required'}), 400
+    user = find_user_by_email(email)
+    if not user:
+        return jsonify({'success': False, 'message': 'No account found with this email'}), 404
+    user_type, user_id = user
+    now = get_ist_now()
+    last = PasswordResetOtp.query.filter_by(email=email).order_by(PasswordResetOtp.expires_at.desc()).first()
+    if last:
+        expires_at = _db_datetime_aware(last.expires_at)
+        if expires_at > now:
+            delta = expires_at - now
+            seconds_left = max(0, int(delta.total_seconds()))
+            return jsonify({
+                'success': False,
+                'message': 'Please wait until the current OTP expires (5 minutes) before resending.',
+                'resend_after_seconds': seconds_left
+            }), 400
+    otp = ''.join(secrets.choice(string.digits) for _ in range(6))
+    expires_at = now + timedelta(minutes=5)
+    PasswordResetOtp.query.filter_by(email=email).delete()
+    db.session.add(PasswordResetOtp(email=email, otp=otp, expires_at=expires_at, user_type=user_type, user_id=user_id))
+    db.session.commit()
+    ok, err_msg = send_password_reset_otp_email(email, otp)
+    if not ok:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': err_msg or 'Failed to send email. Check mail configuration.'}), 500
+    return jsonify({'success': True, 'expires_in_seconds': 300})
+
+
+@app.route('/api/forgot-password/verify-otp', methods=['POST'])
+def api_forgot_password_verify_otp():
+    """Verify OTP; on success remove OTP from table and set session for password reset step."""
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    otp = (data.get('otp') or '').strip()
+    if not email or not otp:
+        return jsonify({'success': False, 'message': 'Email and OTP required'}), 400
+    row = PasswordResetOtp.query.filter_by(email=email).order_by(PasswordResetOtp.expires_at.desc()).first()
+    if not row or row.otp != otp:
+        return jsonify({'success': False, 'message': 'Invalid or expired OTP'}), 400
+    if _db_datetime_aware(row.expires_at) < get_ist_now():
+        return jsonify({'success': False, 'message': 'OTP has expired'}), 400
+    user_type, user_id = row.user_type, row.user_id
+    PasswordResetOtp.query.filter_by(email=email).delete()
+    db.session.commit()
+    session['password_reset'] = {'email': email, 'user_type': user_type, 'user_id': user_id}
+    session.modified = True
+    return jsonify({'success': True})
+
+
+@app.route('/api/forgot-password/set-password', methods=['POST'])
+def api_forgot_password_set_password():
+    """Set new password after OTP verified. Session must contain password_reset."""
+    reset = session.get('password_reset')
+    if not reset:
+        return jsonify({'success': False, 'message': 'Session expired. Please start again from the forgot password page.'}), 400
+    data = request.get_json() or {}
+    new_password = (data.get('password') or '').strip()
+    ok, msg = validate_registration_password(new_password)
+    if not ok:
+        return jsonify({'success': False, 'message': msg}), 400
+    user_type = reset.get('user_type')
+    user_id = reset.get('user_id')
+    if user_type == 'admin':
+        user = Admin.query.get(user_id)
+    elif user_type == 'sales':
+        user = Sales.query.get(user_id)
+    else:
+        session.pop('password_reset', None)
+        return jsonify({'success': False, 'message': 'Invalid session'}), 400
+    if not user:
+        session.pop('password_reset', None)
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+    user.password_hash = generate_password_hash(new_password)
+    if hasattr(user, 'password_plain_text'):
+        user.password_plain_text = new_password  # Admin stores plain text for legacy
+    db.session.commit()
+    session.pop('password_reset', None)
+    session.modified = True
+    return jsonify({'success': True, 'redirect': url_for('index')})
 
 
 # Razorpay (optional; used for registration)
