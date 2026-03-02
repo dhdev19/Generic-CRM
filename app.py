@@ -3255,12 +3255,11 @@ def init_db():
             if not SuperAdmin.query.first():
                 default_super_admin = SuperAdmin(
                     name='Default Super Admin',
-                    username='superadmin',
-                    password_hash=generate_password_hash('admin123')
+                    username=os.environ.get('SUPER_ADMIN_USERNAME'),
+                    password_hash=generate_password_hash(os.environ.get('SUPER_ADMIN_PASSWORD'))
                 )
                 db.session.add(default_super_admin)
                 db.session.commit()
-                print("Default super admin created: username='superadmin', password='admin123'")
         except Exception as e:
             print(f"Warning: Could not initialize database: {e}")
 
