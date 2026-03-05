@@ -8,7 +8,7 @@ os.environ['FLASK_ENV'] = 'development'
 
 from app import (
     app, db, SuperAdmin, Admin, Sales, Query, FollowUp,
-    DeviceToken, AdminDeviceToken, DailyReport,
+    DeviceToken, AdminDeviceToken, DailyReport, MetaPage,
     get_admin_sales_id, build_available_sources, SOURCE_OPTIONS,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -749,13 +749,29 @@ class CRMTests(unittest.TestCase):
         self.assertIsNotNone(q)
 
     def test_api_webhook_meta_ads_success(self):
-        """Test POST /api/webhook/meta-ads/<admin_id> creates lead with custom data"""
+        """Test POST /api/webhook/meta-ads with Meta Graph API format"""
+        # Create a MetaPage record
+        meta_page = MetaPage(
+            admin_id=self.admin.id,
+            page_id='page_123',
+            page_name='Business Page',
+            page_access_token='test_token'
+        )
+        db.session.add(meta_page)
+        db.session.commit()
+        
+        # Send webhook payload in Meta's format
         payload = {
-            'full_name': 'Meta Lead',
-            'phone_number': '1234567890',
-            'email': 'meta@example.com',
-            'service_query': 'Meta ads enquiry'
+            "entry": [{
+                "id": "page_123",
+                "changes": [{
+                    "value": {
+                        "leadgen_id": "leadgen_456"
+                    }
+                }]
+            }]
         }
+        
         response = self.app.post(
             f'/api/webhook/meta-ads/{self.admin.id}',
             data=json.dumps(payload),
@@ -763,13 +779,108 @@ class CRMTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.data)
-        self.assertEqual(data.get('status'), 'success')
-        q = Query.query.filter_by(source='meta_ads').order_by(Query.id.desc()).first()
-        self.assertIsNotNone(q)
-        self.assertEqual(q.name, 'Meta Lead')
-        self.assertEqual(q.phone_number, '1234567890')
-        self.assertEqual(q.mail_id, 'meta@example.com')
-        self.assertEqual(q.service_query, 'Meta ads enquiry')
+        self.assertEqual(data.get('status'), 'ok')
+
+    def test_verify_webhook_meta_ads_success(self):
+        """Test GET /api/webhook/meta-ads verification with correct token"""
+        response = self.app.get(
+            '/api/webhook/meta-ads',
+            query_string={
+                'hub.mode': 'subscribe',
+                'hub.verify_token': 'digitalhomeez_meta_verify',
+                'hub.challenge': 'test_challenge_123'
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data.decode(), 'test_challenge_123')
+
+    def test_verify_webhook_meta_ads_invalid_token(self):
+        """Test GET /api/webhook/meta-ads verification with wrong token"""
+        response = self.app.get(
+            '/api/webhook/meta-ads',
+            query_string={
+                'hub.mode': 'subscribe',
+                'hub.verify_token': 'wrong_token',
+                'hub.challenge': 'test_challenge_123'
+            }
+        )
+        self.assertEqual(response.status_code, 403)
+        data = json.loads(response.data)
+        self.assertEqual(data.get('status'), 'error')
+
+    def test_verify_webhook_meta_ads_missing_params(self):
+        """Test GET /api/webhook/meta-ads verification with missing parameters"""
+        response = self.app.get(
+            '/api/webhook/meta-ads',
+            query_string={'hub.mode': 'subscribe'}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_meta_webhook_post_with_graph_api_format(self):
+        """Test POST /api/webhook/meta-ads/<admin_id> with Meta Graph API format"""
+        # Create a MetaPage record first
+        meta_page = MetaPage(
+            admin_id=self.admin.id,
+            page_id='123456789',
+            page_name='Test Page',
+            page_access_token='test_token'
+        )
+        db.session.add(meta_page)
+        db.session.commit()
+        
+        # Prepare Meta webhook payload
+        payload = {
+            "entry": [{
+                "id": "123456789",
+                "changes": [{
+                    "value": {
+                        "leadgen_id": "test_lead_123"
+                    }
+                }]
+            }]
+        }
+        
+        response = self.app.post(
+            f'/api/webhook/meta-ads/{self.admin.id}',
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        # Should return 200 immediately (webhook ack)
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertEqual(data.get('status'), 'ok')
+
+    def test_meta_webhook_post_missing_leadgen_id(self):
+        """Test POST /api/webhook/meta-ads/<admin_id> without leadgen_id returns 200 (no error)"""
+        payload = {
+            "entry": [{
+                "id": "123456789",
+                "changes": [{
+                    "value": {}
+                }]
+            }]
+        }
+        
+        response = self.app.post(
+            f'/api/webhook/meta-ads/{self.admin.id}',
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertEqual(data.get('status'), 'ok')
+
+    def test_meta_webhook_post_invalid_json(self):
+        """Test POST /api/webhook/meta-ads/<admin_id> with non-JSON returns 400"""
+        response = self.app.post(
+            f'/api/webhook/meta-ads/{self.admin.id}',
+            data='not json',
+            content_type='text/plain'
+        )
+        
+        self.assertEqual(response.status_code, 400)
 
     def test_api_website_lead_missing_fields(self):
         """Test website lead with missing required fields returns 400"""

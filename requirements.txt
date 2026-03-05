@@ -14,3 +14,4 @@ firebase-admin==6.6.0
 razorpay==1.4.1
 docxtpl==0.16.7
 docx2pdf==0.1.8
+requests==2.31.0

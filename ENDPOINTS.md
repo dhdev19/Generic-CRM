@@ -185,10 +185,7 @@ Google Forms / Apps Script. Creates query under admin’s bucket. Source normali
 ### `POST /api/webhook/magic-bricks/<admin_id>`
 ### `POST /api/webhook/99acres/<admin_id>`
 ### `POST /api/webhook/housing/<admin_id>`
-### `POST /api/webhook/meta-ads/<admin_id>`
-Webhook leads. Body can be any JSON; lead is created with fixed name/phone/mail and `service_query` = stringified payload. Source is `"magic bricks"`, `"99acres"`, `"housing"`, or `"meta_ads"` respectively.
-
-For Meta Ads webhook, if the JSON contains `full_name`, `phone_number`, `email`, and `service_query` fields, those values will be used instead of defaults.
+Webhook leads. Body can be any JSON; lead is created with fixed name/phone/mail and `service_query` = stringified payload. Source is `"magic bricks"`, `"99acres"`, or `"housing"` respectively.
 
 **Request:** Any JSON (e.g. `{}` or `{"field": "value"}`)
 
@@ -201,6 +198,76 @@ For Meta Ads webhook, if the JSON contains `full_name`, `phone_number`, `email`,
 }
 ```
 **Errors:** 400 (non-JSON), 404 (admin not found), 500
+
+---
+
+### `GET /api/webhook/meta-ads` (Verification)
+Meta webhook verification endpoint. Meta calls this to verify ownership of the webhook URL.
+
+**Request (Query Parameters):**
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| hub.mode | Yes | Must be `subscribe` |
+| hub.verify_token | Yes | Must match `META_WEBHOOK_VERIFY_TOKEN` env var (default: `digitalhomeez_meta_verify`) |
+| hub.challenge | Yes | Challenge string to echo back |
+
+**Response 200:** Returns the `hub.challenge` value as plain text (not JSON)
+
+**Errors:** 403 (verification failed)
+
+---
+
+### `POST /api/webhook/meta-ads/<admin_id>` (Lead Data)
+Meta webhook for receiving lead data from Meta Lead Ads. This is called by Meta when a new lead is submitted.
+
+Meta sends:
+```json
+{
+  "entry": [{
+    "id": "page_id",
+    "changes": [{
+      "value": {
+        "leadgen_id": "lead_id"
+      }
+    }]
+  }]
+}
+```
+
+The server will:
+1. Extract `page_id` and `leadgen_id`
+2. Look up the page in `meta_pages` table
+3. Call Meta Graph API to fetch full lead data (full_name, email, phone_number)
+4. Create a Query record with source="meta_ads"
+5. Return 200 OK immediately
+
+**Response 200:**
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+### `GET /admin/facebook-pages`
+Page (Session Auth) - Admin only. Manage connected Facebook pages for Meta Lead Ads.
+
+Shows list of connected pages and button to add new pages via OAuth.
+
+---
+
+### `GET /admin/facebook/callback`
+OAuth callback from Facebook. Handles authorization code and exchanges for page access tokens.
+
+**Query Parameters:**
+- `code` - Authorization code from Facebook
+- `state` - State parameter for security (optional)
+
+---
+
+### `POST /admin/facebook/disconnect/<page_id>`
+Disconnect a Facebook page from the CRM (Session Auth - Admin only).
 
 ---
 
@@ -529,6 +596,7 @@ Add or update today’s daily report. **Auth:** sales.
 | POST | `/api/webhook/magic-bricks/<admin_id>` | No | Magic Bricks webhook |
 | POST | `/api/webhook/99acres/<admin_id>` | No | 99acres webhook |
 | POST | `/api/webhook/housing/<admin_id>` | No | Housing webhook |
+| GET | `/api/webhook/meta-ads` | No | Meta Ads verification |
 | POST | `/api/webhook/meta-ads/<admin_id>` | No | Meta Ads webhook |
 | POST | `/api/notify/sales/<sales_id>` | No | Notify sales (FCM) |
 | GET | `/api/debug/sales_tokens/<sales_id>` | No | Debug sales tokens |
