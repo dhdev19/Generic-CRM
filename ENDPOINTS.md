@@ -217,7 +217,7 @@ Meta webhook verification endpoint. Meta calls this to verify ownership of the w
 
 ---
 
-### `POST /api/webhook/meta-ads/<admin_id>` (Lead Data)
+### `POST /api/webhook/meta-ads` (Lead Data)
 Meta webhook for receiving lead data from Meta Lead Ads. This is called by Meta when a new lead is submitted.
 
 Meta sends:
@@ -235,8 +235,8 @@ Meta sends:
 ```
 
 The server will:
-1. Extract `page_id` and `leadgen_id`
-2. Look up the page in `meta_pages` table
+1. Extract `page_id` from the payload
+2. Look up the admin using the `meta_pages` table
 3. Call Meta Graph API to fetch full lead data (full_name, email, phone_number)
 4. Create a Query record with source="meta_ads"
 5. Return 200 OK immediately
@@ -597,7 +597,7 @@ Add or update today’s daily report. **Auth:** sales.
 | POST | `/api/webhook/99acres/<admin_id>` | No | 99acres webhook |
 | POST | `/api/webhook/housing/<admin_id>` | No | Housing webhook |
 | GET | `/api/webhook/meta-ads` | No | Meta Ads verification |
-| POST | `/api/webhook/meta-ads/<admin_id>` | No | Meta Ads webhook |
+| POST | `/api/webhook/meta-ads` | No | Meta Ads webhook |
 | POST | `/api/notify/sales/<sales_id>` | No | Notify sales (FCM) |
 | GET | `/api/debug/sales_tokens/<sales_id>` | No | Debug sales tokens |
 | GET | `/test-firebase` | No | Firebase status |

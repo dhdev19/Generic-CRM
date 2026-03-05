@@ -1538,15 +1538,19 @@ def admin_integrations():
         {
             'name': 'Webhook: Meta Ads (Data)',
             'method': 'POST',
-            'path': f'/api/webhook/meta-ads/{integration_slug}',
-            'description': 'Webhook for Meta (Facebook) Ads leads. Expects JSON with lead data (full_name, phone_number, email, service_query).',
+            'path': '/api/webhook/meta-ads',
+            'description': 'Webhook for Meta (Facebook) Ads leads. Meta sends page_id in payload; admin is identified automatically from connected pages.',
             'sample_request': {
-                'full_name': 'Lead Name',
-                'phone_number': '9999888877',
-                'email': 'lead@example.com',
-                'service_query': 'Meta ads enquiry'
+                "entry": [{
+                    "id": "page_id",
+                    "changes": [{
+                        "value": {
+                            "leadgen_id": "lead_id"
+                        }
+                    }]
+                }]
             },
-            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 48}
+            'sample_response': {'status': 'ok'}
         },
     ]
     for ep in endpoints:
@@ -3051,8 +3055,8 @@ def verify_webhook_meta_ads():
     
     return jsonify({"status": "error", "message": "Verification failed"}), 403
 
-@app.route("/api/webhook/meta-ads/<admin_identifier>", methods=["POST"])
-def api_webhook_meta_ads(admin_identifier):
+@app.route("/api/webhook/meta-ads", methods=["POST"])
+def api_webhook_meta_ads():
     """
     Webhook handler for Meta Lead Ads.
     Meta sends POST with:
@@ -3068,10 +3072,6 @@ def api_webhook_meta_ads(admin_identifier):
     }
     """
     try:
-        admin_user = get_admin_by_integration_identifier(admin_identifier)
-        if not admin_user:
-            return jsonify({"status": "error"}), 404
-        
         if not request.is_json:
             return jsonify({"status": "error"}), 400
         
@@ -3096,9 +3096,17 @@ def api_webhook_meta_ads(admin_identifier):
         if not leadgen_id:
             return jsonify({"status": "ok"}), 200
         
+        # Find admin using page_id
+        meta_page = MetaPage.query.filter_by(page_id=page_id).first()
+        if not meta_page:
+            print(f"[api_webhook_meta_ads] Meta page not found: page_id={page_id}")
+            return jsonify({"status": "ok"}), 200
+        
+        admin_id = meta_page.admin_id
+        
         # Process lead in background (simulated sync for MVP)
         # In production, queue this to Redis/Celery
-        success = _process_meta_lead(page_id, leadgen_id, admin_user.id)
+        success = _process_meta_lead(page_id, leadgen_id, admin_id)
         
         if success:
             return jsonify({"status": "ok"}), 200
