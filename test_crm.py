@@ -748,6 +748,29 @@ class CRMTests(unittest.TestCase):
         q = Query.query.filter_by(source='housing').order_by(Query.id.desc()).first()
         self.assertIsNotNone(q)
 
+    def test_api_webhook_meta_ads_success(self):
+        """Test POST /api/webhook/meta-ads/<admin_id> creates lead with custom data"""
+        payload = {
+            'full_name': 'Meta Lead',
+            'phone_number': '1234567890',
+            'email': 'meta@example.com',
+            'service_query': 'Meta ads enquiry'
+        }
+        response = self.app.post(
+            f'/api/webhook/meta-ads/{self.admin.id}',
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertEqual(data.get('status'), 'success')
+        q = Query.query.filter_by(source='meta_ads').order_by(Query.id.desc()).first()
+        self.assertIsNotNone(q)
+        self.assertEqual(q.name, 'Meta Lead')
+        self.assertEqual(q.phone_number, '1234567890')
+        self.assertEqual(q.mail_id, 'meta@example.com')
+        self.assertEqual(q.service_query, 'Meta ads enquiry')
+
     def test_api_website_lead_missing_fields(self):
         """Test website lead with missing required fields returns 400"""
         response = self.app.post(

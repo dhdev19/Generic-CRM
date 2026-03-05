@@ -185,7 +185,10 @@ Google Forms / Apps Script. Creates query under admin’s bucket. Source normali
 ### `POST /api/webhook/magic-bricks/<admin_id>`
 ### `POST /api/webhook/99acres/<admin_id>`
 ### `POST /api/webhook/housing/<admin_id>`
-Webhook leads. Body can be any JSON; lead is created with fixed name/phone/mail and `service_query` = stringified payload. Source is `"magic bricks"`, `"99acres"`, or `"housing"` respectively.
+### `POST /api/webhook/meta-ads/<admin_id>`
+Webhook leads. Body can be any JSON; lead is created with fixed name/phone/mail and `service_query` = stringified payload. Source is `"magic bricks"`, `"99acres"`, `"housing"`, or `"meta_ads"` respectively.
+
+For Meta Ads webhook, if the JSON contains `full_name`, `phone_number`, `email`, and `service_query` fields, those values will be used instead of defaults.
 
 **Request:** Any JSON (e.g. `{}` or `{"field": "value"}`)
 
@@ -526,6 +529,7 @@ Add or update today’s daily report. **Auth:** sales.
 | POST | `/api/webhook/magic-bricks/<admin_id>` | No | Magic Bricks webhook |
 | POST | `/api/webhook/99acres/<admin_id>` | No | 99acres webhook |
 | POST | `/api/webhook/housing/<admin_id>` | No | Housing webhook |
+| POST | `/api/webhook/meta-ads/<admin_id>` | No | Meta Ads webhook |
 | POST | `/api/notify/sales/<sales_id>` | No | Notify sales (FCM) |
 | GET | `/api/debug/sales_tokens/<sales_id>` | No | Debug sales tokens |
 | GET | `/test-firebase` | No | Firebase status |

@@ -1515,6 +1515,19 @@ def admin_integrations():
             'sample_request': {},
             'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 47}
         },
+        {
+            'name': 'Webhook: Meta Ads',
+            'method': 'POST',
+            'path': f'/api/webhook/meta-ads/{integration_slug}',
+            'description': 'Webhook for Meta (Facebook) Ads leads. Expects JSON with lead data (full_name, phone_number, email, service_query).',
+            'sample_request': {
+                'full_name': 'Lead Name',
+                'phone_number': '9999888877',
+                'email': 'lead@example.com',
+                'service_query': 'Meta ads enquiry'
+            },
+            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 48}
+        },
     ]
     for ep in endpoints:
         ep['full_url'] = base_url + ep['path'] if base_url else ep['path']
@@ -2650,6 +2663,71 @@ def _create_webhook_fixed_lead(source: str, admin_id: int):
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+def _create_webhook_meta_ads_lead(admin_id: int):
+    """
+    Create a Meta ads lead with actual data from payload:
+    Expects JSON with full_name, phone_number, email, service_query.
+    Falls back to defaults if fields missing.
+    """
+    try:
+        if not request.is_json:
+            return jsonify({"status": "error", "message": "Content-Type must be application/json"}), 400
+
+        payload = request.get_json() or {}
+        sales_id = get_admin_sales_id(admin_id)
+        date_of_enquiry = get_ist_now()
+
+        admin_user = db.session.get(Admin, admin_id)
+        if not admin_user:
+            return jsonify({"status": "error", "message": "Admin not found"}), 404
+
+        sales_user = db.session.get(Sales, sales_id)
+        if not sales_user:
+            return jsonify({"status": "error", "message": "Sales user not found"}), 404
+
+        # Extract lead data from payload
+        name = payload.get('full_name', 'Meta Ads Lead')
+        phone_number = payload.get('phone_number', '9876543210')
+        mail_id = payload.get('email', 'lead@example.com')
+        service_query = payload.get('service_query', json.dumps(payload, default=str))
+
+        query = Query(
+            sales_id=sales_id,
+            admin_id=admin_id,
+            name=name,
+            phone_number=phone_number,
+            service_query=service_query,
+            mail_id=mail_id,
+            source="meta_ads",
+            closure="pending",
+            date_of_enquiry=date_of_enquiry
+        )
+
+        db.session.add(query)
+        db.session.commit()
+
+        # Reassign from default sales to actual sales person (if enabled).
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                db.session.refresh(query)
+            except Exception:
+                pass
+
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+        except Exception:
+            pass
+
+        return jsonify({
+            "status": "success",
+            "message": "Meta ads lead submitted successfully",
+            "query_id": query.id
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/webhook/magic-bricks/<admin_identifier>", methods=["POST"])
 def api_webhook_magic_bricks(admin_identifier):
     admin_user = get_admin_by_integration_identifier(admin_identifier)
@@ -2670,6 +2748,13 @@ def api_webhook_housing(admin_identifier):
     if not admin_user:
         return jsonify({"status": "error", "message": "Admin not found"}), 404
     return _create_webhook_fixed_lead("housing", admin_user.id)
+
+@app.route("/api/webhook/meta-ads/<admin_identifier>", methods=["POST"])
+def api_webhook_meta_ads(admin_identifier):
+    admin_user = get_admin_by_integration_identifier(admin_identifier)
+    if not admin_user:
+        return jsonify({"status": "error", "message": "Admin not found"}), 404
+    return _create_webhook_meta_ads_lead(admin_user.id)
 
 # API endpoint for Google Forms submissions (admin id or integration_slug in URL)
 @app.route("/api/formAdd/<admin_identifier>", methods=["POST"])
