@@ -3,13 +3,252 @@
 {% block title %}Register - CRM System{% endblock %}
 
 {% block auth_content %}
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-md-8 col-lg-6">
-            <div class="card shadow">
-                <div class="card-body p-4">
-                    <h2 class="text-primary mb-3">Create your account</h2>
-                    <p class="text-muted small">Register as Admin. Verify email, choose a plan and complete payment to activate.</p>
+<style>
+    .register-wrapper {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at top left, #e0ebff 0, transparent 55%),
+                    radial-gradient(circle at bottom right, #ffe6dd 0, transparent 55%),
+                    #f3f4f6;
+        padding: 40px 0;
+    }
+
+    .register-hero {
+        background: linear-gradient(145deg, #173470, #192e81);
+        border-radius: 24px;
+        color: #ffffff;
+        padding: 32px 28px;
+        box-shadow: 0 22px 45px rgba(15, 23, 42, 0.45);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .register-hero::before {
+        content: "";
+        position: absolute;
+        width: 260px;
+        height: 260px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.25), transparent 60%);
+        top: -80px;
+        right: -60px;
+        opacity: 0.9;
+    }
+
+    .register-hero-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.45);
+        font-size: 0.8rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .register-hero-badge i {
+        margin-right: 6px;
+    }
+
+    .register-hero-title {
+        font-family: "Poppins", sans-serif;
+        font-weight: 700;
+        font-size: 1.7rem;
+        margin-top: 18px;
+        margin-bottom: 8px;
+    }
+
+    .register-hero-subtitle {
+        font-size: 0.9rem;
+        opacity: 0.85;
+        margin-bottom: 20px;
+    }
+
+    .register-hero-list {
+        list-style: none;
+        padding-left: 0;
+        margin-bottom: 0;
+        font-size: 0.9rem;
+    }
+
+    .register-hero-list li {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .register-hero-list li i {
+        color: #22c55e;
+        margin-right: 8px;
+        font-size: 0.95rem;
+    }
+
+    .register-card {
+        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        box-shadow: 0 24px 55px rgba(15, 23, 42, 0.18);
+        background: #ffffff;
+    }
+
+    .register-card .card-body {
+        padding: 2.25rem 2.5rem;
+    }
+
+    .register-heading {
+        font-family: "Poppins", sans-serif;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+    }
+
+    .register-subtext {
+        font-size: 0.9rem;
+    }
+
+    .register-step-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #6b7280;
+        font-weight: 600;
+    }
+
+    .register-step-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: #e5e7eb;
+        font-size: 0.7rem;
+        margin-left: 4px;
+    }
+
+    .register-step-pill span {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #192e81;
+        color: #ffffff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.65rem;
+        margin-right: 6px;
+    }
+
+    .register-form .form-label {
+        font-weight: 500;
+        font-size: 0.9rem;
+        color: #111827;
+    }
+
+    .register-form .form-control,
+    .register-form .form-select {
+        border-radius: 10px;
+        border-color: #d1d5db;
+        padding: 0.65rem 0.9rem;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.08s ease;
+    }
+
+    .register-form .form-control:focus,
+    .register-form .form-select:focus {
+        border-color: #192e81;
+        box-shadow: 0 0 0 0.12rem rgba(25, 46, 129, 0.22);
+        transform: translateY(-1px);
+    }
+
+    .register-form .input-group > .form-control {
+        border-top-left-radius: 10px;
+        border-bottom-left-radius: 10px;
+    }
+
+    .register-form .input-group > .btn {
+        border-top-right-radius: 10px;
+        border-bottom-right-radius: 10px;
+    }
+
+    #passwordFeedback {
+        font-size: 0.8rem;
+    }
+
+    #usernameFeedback {
+        font-size: 0.8rem;
+    }
+
+    #emailVerifiedBadge {
+        font-size: 0.8rem;
+    }
+
+    #resendOtpBtn {
+        font-size: 0.8rem;
+    }
+
+    #submitBtn {
+        border-radius: 999px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0.8rem 1.2rem;
+        box-shadow: 0 18px 40px rgba(25, 46, 129, 0.35);
+        border: none;
+    }
+
+    #submitBtn:disabled {
+        box-shadow: none;
+        opacity: 0.65;
+    }
+
+    @media (max-width: 991.98px) {
+        .register-hero {
+            margin-bottom: 24px;
+        }
+
+        .register-card .card-body {
+            padding: 1.8rem 1.6rem;
+        }
+    }
+</style>
+<div class="register-wrapper">
+    <div class="container">
+        <div class="row justify-content-center g-4">
+            <div class="col-lg-5 d-none d-lg-flex align-items-center">
+                <div class="register-hero w-100">
+                    <div class="register-hero-badge">
+                        <i class="fas fa-shield-alt"></i>
+                        Admin workspace setup
+                    </div>
+                    <h2 class="register-hero-title">Configure your CRM in minutes</h2>
+                    <p class="register-hero-subtitle">
+                        Create an admin account, verify your email, choose the right plan for your team
+                        and start managing leads and customers in one place.
+                    </p>
+                    <ul class="register-hero-list">
+                        <li><i class="fas fa-check-circle"></i><span>Secure email verification and OTP-based access</span></li>
+                        <li><i class="fas fa-check-circle"></i><span>Flexible user plans tailored to your sales team size</span></li>
+                        <li><i class="fas fa-check-circle"></i><span>Analytics-ready setup from day one</span></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-10 col-lg-7 col-xl-6">
+                <div class="card register-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h2 class="text-primary register-heading">Create your account</h2>
+                                <p class="text-muted register-subtext mb-0">
+                                    Register as Admin, verify your email, select a plan and complete payment.
+                                </p>
+                            </div>
+                            <div class="text-end">
+                                <div class="register-step-label">
+                                    Registration flow
+                                </div>
+                                <div class="register-step-pill mt-1">
+                                    <span>1</span> Details &amp; verification
+                                </div>
+                            </div>
+                        </div>
                     {% if errors %}
                     <div class="alert alert-danger">
                         <ul class="mb-0 list-unstyled">
@@ -19,7 +258,7 @@
                         </ul>
                     </div>
                     {% endif %}
-                    <form method="POST" action="{{ url_for('register') }}" id="registerForm">
+                    <form method="POST" action="{{ url_for('register') }}" id="registerForm" class="register-form">
                         <div class="mb-3">
                             <label for="full_name" class="form-label">Full name</label>
                             <input type="text" class="form-control" id="full_name" name="full_name" required
