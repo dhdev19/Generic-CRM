@@ -773,7 +773,7 @@ class CRMTests(unittest.TestCase):
         }
         
         response = self.app.post(
-            f'/api/webhook/meta-ads/{self.admin.id}',
+            '/api/webhook/meta-ads',
             data=json.dumps(payload),
             content_type='application/json'
         )
@@ -817,7 +817,7 @@ class CRMTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_meta_webhook_post_with_graph_api_format(self):
-        """Test POST /api/webhook/meta-ads/<admin_id> with Meta Graph API format"""
+        """Test POST /api/webhook/meta-ads with Meta Graph API format"""
         # Create a MetaPage record first
         meta_page = MetaPage(
             admin_id=self.admin.id,
@@ -841,7 +841,7 @@ class CRMTests(unittest.TestCase):
         }
         
         response = self.app.post(
-            f'/api/webhook/meta-ads/{self.admin.id}',
+            '/api/webhook/meta-ads',
             data=json.dumps(payload),
             content_type='application/json'
         )
@@ -852,7 +852,7 @@ class CRMTests(unittest.TestCase):
         self.assertEqual(data.get('status'), 'ok')
 
     def test_meta_webhook_post_missing_leadgen_id(self):
-        """Test POST /api/webhook/meta-ads/<admin_id> without leadgen_id returns 200 (no error)"""
+        """Test POST /api/webhook/meta-ads without leadgen_id returns 200 (no error)"""
         payload = {
             "entry": [{
                 "id": "123456789",
@@ -863,7 +863,7 @@ class CRMTests(unittest.TestCase):
         }
         
         response = self.app.post(
-            f'/api/webhook/meta-ads/{self.admin.id}',
+            '/api/webhook/meta-ads',
             data=json.dumps(payload),
             content_type='application/json'
         )
@@ -873,9 +873,9 @@ class CRMTests(unittest.TestCase):
         self.assertEqual(data.get('status'), 'ok')
 
     def test_meta_webhook_post_invalid_json(self):
-        """Test POST /api/webhook/meta-ads/<admin_id> with non-JSON returns 400"""
+        """Test POST /api/webhook/meta-ads with non-JSON returns 400"""
         response = self.app.post(
-            f'/api/webhook/meta-ads/{self.admin.id}',
+            '/api/webhook/meta-ads',
             data='not json',
             content_type='text/plain'
         )

@@ -1538,18 +1538,9 @@ def admin_integrations():
         {
             'name': 'Webhook: Meta Ads (Data)',
             'method': 'POST',
-            'path': '/api/webhook/meta-ads',
-            'description': 'Webhook for Meta (Facebook) Ads leads. Meta sends page_id in payload; admin is identified automatically from connected pages.',
-            'sample_request': {
-                "entry": [{
-                    "id": "page_id",
-                    "changes": [{
-                        "value": {
-                            "leadgen_id": "lead_id"
-                        }
-                    }]
-                }]
-            },
+            'path': '/api/webhook/meta-ads?page_id=123456789&leadgen_id=987654321',
+            'description': 'Webhook for Meta (Facebook) Ads leads. Send page_id and leadgen_id as query parameters; admin is identified automatically from connected pages.',
+            'sample_request': '?page_id=123456789&leadgen_id=987654321&name=John+Doe&phone_number=9876543210&email=john@example.com',
             'sample_response': {'status': 'ok'}
         },
     ]
@@ -3059,42 +3050,21 @@ def verify_webhook_meta_ads():
 def api_webhook_meta_ads():
     """
     Webhook handler for Meta Lead Ads.
-    Meta sends POST with:
-    {
-        "entry": [{
-            "id": "page_id",
-            "changes": [{
-                "value": {
-                    "leadgen_id": "lead_id"
-                }
-            }]
-        }]
-    }
+    Accepts query parameters: page_id, leadgen_id
+    Optional: name, phone_number, email (used as sample data)
     """
     try:
-        if not request.is_json:
-            return jsonify({"status": "error"}), 400
+        # Extract query parameters
+        page_id = request.args.get('page_id')
+        leadgen_id = request.args.get('leadgen_id')
         
-        payload = request.get_json() or {}
+        # Sample data from optional parameters
+        name = request.args.get('name', 'Meta Ads Lead')
+        phone_number = request.args.get('phone_number', '9876543210')
+        email = request.args.get('email', 'lead@example.com')
         
-        # Extract entry data
-        entries = payload.get('entry', [])
-        if not entries:
-            return jsonify({"status": "ok"}), 200
-        
-        entry = entries[0]
-        page_id = entry.get('id')
-        changes = entry.get('changes', [])
-        
-        if not page_id or not changes:
-            return jsonify({"status": "ok"}), 200
-        
-        change = changes[0]
-        value = change.get('value', {})
-        leadgen_id = value.get('leadgen_id')
-        
-        if not leadgen_id:
-            return jsonify({"status": "ok"}), 200
+        if not page_id or not leadgen_id:
+            return jsonify({"status": "error", "message": "Missing required parameters: page_id, leadgen_id"}), 400
         
         # Find admin using page_id
         meta_page = MetaPage.query.filter_by(page_id=page_id).first()
@@ -3104,16 +3074,45 @@ def api_webhook_meta_ads():
         
         admin_id = meta_page.admin_id
         
-        # Process lead in background (simulated sync for MVP)
-        # In production, queue this to Redis/Celery
-        success = _process_meta_lead(page_id, leadgen_id, admin_id)
+        # Get admin's bucket sales
+        sales_id = get_admin_sales_id(admin_id)
         
-        if success:
-            return jsonify({"status": "ok"}), 200
-        else:
-            # Still return 200 to Meta so it doesn't retry
-            # In production, log this failure for manual review
-            return jsonify({"status": "ok"}), 200
+        # Create Query record with sample data
+        query = Query(
+            sales_id=sales_id,
+            admin_id=admin_id,
+            name=name,
+            phone_number=phone_number,
+            service_query=json.dumps({
+                'leadgen_id': leadgen_id,
+                'page_id': page_id,
+                'page_name': meta_page.page_name if meta_page else 'Unknown Page'
+            }, default=str),
+            mail_id=email,
+            source="meta_ads",
+            closure="pending",
+            date_of_enquiry=get_ist_now()
+        )
+        
+        db.session.add(query)
+        db.session.commit()
+        
+        # Auto-assign if enabled
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                db.session.refresh(query)
+            except Exception:
+                pass
+        
+        # Send notification
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+        except Exception:
+            pass
+        
+        print(f"[api_webhook_meta_ads] Lead processed successfully: query_id={query.id}")
+        return jsonify({"status": "ok"}), 200
             
     except Exception as e:
         print(f"[api_webhook_meta_ads] Error: {e}")
