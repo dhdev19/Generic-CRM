@@ -1,0 +1,4 @@
+# Meta Ads Webhook Logs
+# This file logs all requests to /api/webhook/meta-ads endpoint
+# Format: [timestamp] message
+

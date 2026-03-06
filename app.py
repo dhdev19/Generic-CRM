@@ -3040,6 +3040,14 @@ def api_webhook_housing(admin_identifier):
 
 @app.route("/api/webhook/meta-ads", methods=["GET","POST"])
 def api_webhook_meta_ads():
+    import datetime
+
+    def log_to_file(message):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open("logs.txt", "a") as f:
+            f.write(f"[{timestamp}] {message}\n")
+
+    log_to_file(f"Endpoint hit: {request.method} {request.url}")
 
     # Meta verification
     if request.method == "GET":
@@ -3047,13 +3055,17 @@ def api_webhook_meta_ads():
         verify_token = request.args.get("hub.verify_token")
         challenge = request.args.get("hub.challenge")
 
+        log_to_file(f"GET params: mode={mode}, verify_token={verify_token}, challenge={challenge}")
+
         if mode == "subscribe" and verify_token == "digitalhomeez_meta_verify":
+            log_to_file(f"Response: challenge={challenge}, status=200")
             return challenge, 200
+        log_to_file("Response: Verification failed, status=403")
         return "Verification failed", 403
 
     try:
         data = request.json
-        print("META WEBHOOK:", data)
+        log_to_file(f"Received JSON payload: {json.dumps(data, indent=2)}")
 
         entry = data.get("entry", [])[0]
         page_id = entry.get("id")
@@ -3063,15 +3075,21 @@ def api_webhook_meta_ads():
 
         leadgen_id = value.get("leadgen_id")
 
+        log_to_file(f"Extracted: page_id={page_id}, leadgen_id={leadgen_id}")
+
         if not page_id or not leadgen_id:
+            log_to_file("Response: Missing page_id or leadgen_id, status=200")
             return jsonify({"status": "ok"}), 200
 
         meta_page = MetaPage.query.filter_by(page_id=page_id).first()
         if not meta_page:
+            log_to_file(f"Meta page not found for page_id={page_id}, status=200")
             return jsonify({"status": "ok"}), 200
 
         admin_id = meta_page.admin_id
         sales_id = get_admin_sales_id(admin_id)
+
+        log_to_file(f"Found admin_id={admin_id}, sales_id={sales_id}")
 
         query = Query(
             sales_id=sales_id,
@@ -3091,26 +3109,30 @@ def api_webhook_meta_ads():
         db.session.add(query)
         db.session.commit()
 
+        log_to_file(f"Query created with id={query.id}")
+
         # Auto-assign if enabled
         if AUTO_ASSIGN:
             try:
                 assign_sales_rep_to_query(query.id)
                 db.session.refresh(query)
-            except Exception:
-                pass
+                log_to_file(f"Auto-assigned to sales_id={query.sales_id}")
+            except Exception as e:
+                log_to_file(f"Auto-assign failed: {e}")
 
         # Send notification
         try:
             send_new_query_notification_to_sales(query.sales_id, query)
-        except Exception:
-            pass
+            log_to_file("Notification sent successfully")
+        except Exception as e:
+            log_to_file(f"Notification failed: {e}")
 
-        print("Lead saved:", query.id)
-
+        log_to_file("Response: status=ok, status=200")
         return jsonify({"status":"ok"}),200
 
     except Exception as e:
-        print("META ERROR:", e)
+        log_to_file(f"Exception occurred: {e}")
+        log_to_file("Response: status=ok, status=200")
         return jsonify({"status":"ok"}),200
 
 
