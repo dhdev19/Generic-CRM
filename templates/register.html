@@ -4,94 +4,37 @@
 
 {% block auth_content %}
 <style>
-    .register-wrapper {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: radial-gradient(circle at top left, #e0ebff 0, transparent 55%),
-                    radial-gradient(circle at bottom right, #ffe6dd 0, transparent 55%),
-                    #f3f4f6;
-        padding: 40px 0;
-    }
 
-    .register-hero {
-        background: linear-gradient(145deg, #173470, #192e81);
-        border-radius: 24px;
-        color: #ffffff;
-        padding: 32px 28px;
-        box-shadow: 0 22px 45px rgba(15, 23, 42, 0.45);
-        position: relative;
-        overflow: hidden;
-    }
+.registration-right-section{
+    width: 100%;
+}
 
-    .register-hero::before {
-        content: "";
-        position: absolute;
-        width: 260px;
-        height: 260px;
-        border-radius: 50%;
-        background: radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.25), transparent 60%);
-        top: -80px;
-        right: -60px;
-        opacity: 0.9;
-    }
+.email-input-group {
+    display: flex;
+    flex-wrap: nowrap;
+}
+input#email {
+    width: 80%;
+}
 
-    .register-hero-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 6px 14px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.45);
-        font-size: 0.8rem;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-    }
 
-    .register-hero-badge i {
-        margin-right: 6px;
-    }
 
-    .register-hero-title {
-        font-family: "Poppins", sans-serif;
-        font-weight: 700;
-        font-size: 1.7rem;
-        margin-top: 18px;
-        margin-bottom: 8px;
-    }
+.right-section p {
+    font-size: 15px;
+    font-family: "Poppins", sans-serif;
+    color: #000 !important;
+    font-weight: 500;
+    margin: 0 0 0 0;
+    padding: 10px 0 10px 0;
+}
 
-    .register-hero-subtitle {
-        font-size: 0.9rem;
-        opacity: 0.85;
-        margin-bottom: 20px;
-    }
-
-    .register-hero-list {
-        list-style: none;
-        padding-left: 0;
-        margin-bottom: 0;
-        font-size: 0.9rem;
-    }
-
-    .register-hero-list li {
-        display: flex;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-
-    .register-hero-list li i {
-        color: #22c55e;
-        margin-right: 8px;
-        font-size: 0.95rem;
-    }
-
-    .register-card {
-        border-radius: 20px;
-        border: 1px solid rgba(148, 163, 184, 0.35);
-        box-shadow: 0 24px 55px rgba(15, 23, 42, 0.18);
-        background: #ffffff;
-    }
-
+.register-card {
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 24px 55px rgba(15, 23, 42, 0.18);
+    background: #ffffff;
+    margin: 20px 20px 20px 20px;
+}
     .register-card .card-body {
         padding: 2.25rem 2.5rem;
     }
@@ -153,9 +96,9 @@
 
     .register-form .form-control:focus,
     .register-form .form-select:focus {
-        border-color: #192e81;
-        box-shadow: 0 0 0 0.12rem rgba(25, 46, 129, 0.22);
-        transform: translateY(-1px);
+        border-color: #86b7fe;
+        box-shadow: none;
+         
     }
 
     .register-form .input-group > .form-control {
@@ -166,11 +109,43 @@
     .register-form .input-group > .btn {
         border-top-right-radius: 10px;
         border-bottom-right-radius: 10px;
+        color: #ffffff;
+    border-color: #173470;
+    background: #173470;
+    }
+
+    .register-form .input-group > .btn:focus {
+        border-color: #173470;
+        box-shadow: none;
     }
 
     #passwordFeedback {
-        font-size: 0.8rem;
-    }
+    font-size: 12px;
+    font-family: "Poppins", sans-serif;
+     
+}
+
+.regis-link{
+    font-size: 16px;
+    font-family: "Poppins", sans-serif;
+    color: #000 !important;
+    font-weight: 500;
+    margin: 0 0 0 0;
+    padding: 10px 0 0 0;
+}
+
+.regis-link a {
+    font-family: "Poppins", sans-serif;
+    color: #417bf4 !important;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 500 !important;
+}
+
+.password-instructions {
+    font-size: 12px;
+    font-family: "Poppins", sans-serif;
+}
 
     #usernameFeedback {
         font-size: 0.8rem;
@@ -200,37 +175,100 @@
     }
 
     @media (max-width: 991.98px) {
-        .register-hero {
-            margin-bottom: 24px;
-        }
-
         .register-card .card-body {
             padding: 1.8rem 1.6rem;
         }
+        .register-card {
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 24px 55px rgba(15, 23, 42, 0.18);
+    background: #ffffff;
+    margin: 20px 0px 20px 0px;
+}
+input#email {
+    width: 55%;
+}
+.register-form .input-group > .btn {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+    color: #ffffff;
+    border-color: #173470;
+    background: #173470;
+    font-size: 13px;
+    font-family: "Poppins", sans-serif;
+}
+
+
+.right-section .form-control {
+    font-size: 13px;
+}
+
+.role-card { 
+    margin: 0 20px 0 20px;
+}
+
+.crm-main-heading {
+    font-size: 30px; 
+}
+
+.crm-description {
+    padding: 0 0 10px 0;
+    margin: 0px;
+    font-size: 14px;
+    font-family: "Poppins", sans-serif;
+}
+
+.crm-logo {
+    width: 80px;
+    margin: 10px 0 0 0;
+}
+
+.right-section h2 {
+    font-size: 25px; 
+}
+
+.right-section p {
+    font-size: 14px;
+    font-family: "Poppins", sans-serif;
+    color: #000 !important;
+    font-weight: 500;
+    margin: 0 0 0 0;
+    padding: 5px 0 10px 0;
+}
+
     }
 </style>
-<div class="register-wrapper">
-    <div class="container">
-        <div class="row justify-content-center g-4">
-            <div class="col-lg-5 d-none d-lg-flex align-items-center">
-                <div class="register-hero w-100">
-                    <div class="register-hero-badge">
-                        <i class="fas fa-shield-alt"></i>
-                        Admin workspace setup
+<div class="container-fluid">
+    <div class="row min-vh-100">
+        <div class="col-lg-6 d-flex align-items-center justify-content-center" style="background: #173470;">
+            <div class="text-center text-white">
+                <img src="static/crm-logo.jpg" class="img-fluid crm-logo">
+                <h1 class="display-4 fw-bold mb-4 crm-main-heading">CRM System</h1>
+                <p class="crm-description">Manage your customer relationships efficiently</p>
+                <div class="row text-center roles-section">
+                    <div class="col-md-6 mb-3">
+                        <div class="role-card">
+                            <div class="role-icon role-icon--admin">
+                                <i class="fas fa-user-tie"></i>
+                            </div>
+                            <h5 class="role-heading">Admin</h5>
+                            <small class="role-text">Team management</small>
+                        </div>
                     </div>
-                    <h2 class="register-hero-title">Configure your CRM in minutes</h2>
-                    <p class="register-hero-subtitle">
-                        Create an admin account, verify your email, choose the right plan for your team
-                        and start managing leads and customers in one place.
-                    </p>
-                    <ul class="register-hero-list">
-                        <li><i class="fas fa-check-circle"></i><span>Secure email verification and OTP-based access</span></li>
-                        <li><i class="fas fa-check-circle"></i><span>Flexible user plans tailored to your sales team size</span></li>
-                        <li><i class="fas fa-check-circle"></i><span>Analytics-ready setup from day one</span></li>
-                    </ul>
+                    <div class="col-md-6 mb-3">
+                        <div class="role-card">
+                            <div class="role-icon role-icon--sales">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <h5 class="role-heading">Sales</h5>
+                            <small class="role-text">Customer interaction</small>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-10 col-lg-7 col-xl-6">
+        </div>
+        <div class="col-lg-6 d-flex align-items-center justify-content-center right-section">
+            <div class="registration-right-section">
                 <div class="card register-card">
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start mb-3">
@@ -240,14 +278,14 @@
                                     Register as Admin, verify your email, select a plan and complete payment.
                                 </p>
                             </div>
-                            <div class="text-end">
+                            <!-- <div class="text-end">
                                 <div class="register-step-label">
                                     Registration flow
                                 </div>
                                 <div class="register-step-pill mt-1">
                                     <span>1</span> Details &amp; verification
                                 </div>
-                            </div>
+                            </div> -->
                         </div>
                     {% if errors %}
                     <div class="alert alert-danger">
@@ -259,27 +297,32 @@
                     </div>
                     {% endif %}
                     <form method="POST" action="{{ url_for('register') }}" id="registerForm" class="register-form">
-                        <div class="mb-3">
+                        
+                        <div class="row">
+                        <div class="mb-3 col-lg-6">
                             <label for="full_name" class="form-label">Full name</label>
                             <input type="text" class="form-control" id="full_name" name="full_name" required
                                    value="{{ full_name or '' }}" placeholder="Your full name">
                         </div>
-                        <div class="mb-3">
+                        <div class="mb-3 col-lg-6">
                             <label for="username" class="form-label">Username</label>
                             <input type="text" class="form-control" id="username" name="username" required
                                    value="{{ username or '' }}" placeholder="Login username">
                             <div id="usernameFeedback" class="form-text"></div>
                         </div>
+</div>
+
+
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
                             <input type="password" class="form-control" id="password" name="password" required
                                    placeholder="Min 8 chars, 1 upper, 1 lower, 1 number, 1 special">
                             <div id="passwordFeedback" class="small mt-1"></div>
-                            <div class="form-text">Min 8 characters, at least one uppercase, one lowercase, one number, one special character</div>
+                            <div class="password-instructions">Min 8 characters, at least one uppercase, one lowercase, one number, one special character</div>
                         </div>
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
-                            <div class="input-group">
+                            <div class="input-group email-input-group">
                                 <input type="email" class="form-control" id="email" name="email" required
                                        value="{{ email or '' }}" placeholder="your@email.com">
                                 <button type="button" class="btn btn-outline-primary" id="sendOtpBtn">Verify email</button>
@@ -295,16 +338,20 @@
                             </div>
                             <div id="emailVerifiedBadge" class="text-success small mt-1 d-none"><i class="fas fa-check-circle"></i> Email verified</div>
                         </div>
-                        <div class="mb-3">
+
+                        <div class="row">
+                        <div class="mb-3 col-lg-6">
                             <label for="phone_number" class="form-label">Phone number</label>
                             <input type="text" class="form-control" id="phone_number" name="phone_number" required
                                    value="{{ phone_number or '' }}" placeholder="10-digit mobile">
                         </div>
-                        <div class="mb-3">
+                        <div class="mb-3 col-lg-6">
                             <label for="organization_name" class="form-label">Organization name</label>
                             <input type="text" class="form-control" id="organization_name" name="organization_name" required
                                    value="{{ organization_name or '' }}" placeholder="Your company name">
                         </div>
+</div>
+
                         <div class="mb-4">
                             <label for="plan_id" class="form-label">Plan</label>
                             <select class="form-select" id="plan_id" name="plan_id" required>
@@ -318,10 +365,11 @@
                         </div>
                         <button type="submit" class="btn w-100 text-white" id="submitBtn" style="background-color: #192e81;" disabled>Continue to payment</button>
                     </form>
-                    <div class="text-center mt-3">
-                        <a href="{{ url_for('login') }}" class="text-muted small">Already have an account? Login</a>
+                    <div class="text-center mt-3 regis-link">
+                        Already have an account? <a href="{{ url_for('login') }}" class="text-muted small">Login</a> 
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     </div>
