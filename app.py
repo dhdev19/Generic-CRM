@@ -12,6 +12,8 @@ from config import config
 import pymysql
 from sqlalchemy import desc, or_
 from sqlalchemy.exc import IntegrityError
+import requests
+from urllib.parse import urlencode
 
 # IST timezone (GMT+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -408,6 +410,16 @@ class TempUser(db.Model):
     razorpay_order_id = db.Column(db.String(100), unique=True, nullable=True, index=True)
     razorpay_payment_id = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, default=get_ist_now)
+
+# Meta Pages: stores which CRM admin connected which Facebook page
+class MetaPage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin.id'), nullable=False, index=True)
+    page_id = db.Column(db.String(50), nullable=False, index=True)
+    page_name = db.Column(db.String(255), nullable=False)
+    page_access_token = db.Column(db.Text, nullable=False)  # encrypted in production
+    created_at = db.Column(db.DateTime, default=get_ist_now)
+    __table_args__ = (db.UniqueConstraint('admin_id', 'page_id', name='unique_admin_page'),)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -1516,23 +1528,43 @@ def admin_integrations():
             'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 47}
         },
         {
-            'name': 'Webhook: Meta Ads',
+            'name': 'Webhook: Meta Ads (Verification)',
+            'method': 'GET',
+            'path': '/api/webhook/meta-ads?hub.mode=subscribe&hub.verify_token=digitalhomeez_meta_verify&hub.challenge={challenge}',
+            'description': 'Webhook verification for Meta Ads. Meta calls this to verify webhook ownership. Set hub.challenge to your test value.',
+            'sample_request': '?hub.mode=subscribe&hub.verify_token=digitalhomeez_meta_verify&hub.challenge=test_challenge_123',
+            'sample_response': 'test_challenge_123 (plain text, not JSON)'
+        },
+        {
+            'name': 'Webhook: Meta Ads (Data)',
             'method': 'POST',
-            'path': f'/api/webhook/meta-ads/{integration_slug}',
-            'description': 'Webhook for Meta (Facebook) Ads leads. Expects JSON with lead data (full_name, phone_number, email, service_query).',
+            'path': '/api/webhook/meta-ads',
+            'description': 'Webhook for Meta (Facebook) Ads leads. Meta sends JSON payload with page_id and leadgen_id; admin is identified automatically from connected pages.',
             'sample_request': {
-                'full_name': 'Lead Name',
-                'phone_number': '9999888877',
-                'email': 'lead@example.com',
-                'service_query': 'Meta ads enquiry'
+                "entry": [{
+                    "id": "PAGE_ID",
+                    "changes": [{
+                        "field": "leadgen",
+                        "value": {
+                            "leadgen_id": "LEAD_ID"
+                        }
+                    }]
+                }]
             },
-            'sample_response': {'status': 'success', 'message': 'Lead submitted successfully', 'query_id': 48}
+            'sample_response': {'status': 'ok'}
         },
     ]
     for ep in endpoints:
         ep['full_url'] = base_url + ep['path'] if base_url else ep['path']
-        ep['sample_request_json'] = json.dumps(ep['sample_request'], indent=2)
-        ep['sample_response_json'] = json.dumps(ep['sample_response'], indent=2)
+        # Handle both dict (JSON) and string (query params, plain text response)
+        if isinstance(ep['sample_request'], dict):
+            ep['sample_request_json'] = json.dumps(ep['sample_request'], indent=2)
+        else:
+            ep['sample_request_json'] = str(ep['sample_request'])
+        if isinstance(ep['sample_response'], dict):
+            ep['sample_response_json'] = json.dumps(ep['sample_response'], indent=2)
+        else:
+            ep['sample_response_json'] = str(ep['sample_response'])
     return render_template(
         'admin_integrations.html',
         base_url=base_url,
@@ -1540,6 +1572,155 @@ def admin_integrations():
         integration_slug=integration_slug,
         endpoints=endpoints,
     )
+
+@app.route('/admin/facebook-pages')
+@login_required
+def admin_facebook_pages():
+    """Manage connected Facebook pages for Meta Lead Ads"""
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+    
+    meta_pages = MetaPage.query.filter_by(admin_id=current_user.id).all()
+    
+    # Build OAuth link
+    app_id = os.environ.get('FACEBOOK_APP_ID')
+    redirect_uri = request.url_root.rstrip('/') + url_for('facebook_oauth_callback')
+    
+    if app_id:
+        facebook_auth_url = (
+            f"https://www.facebook.com/v19.0/dialog/oauth?"
+            f"client_id={app_id}&"
+            f"redirect_uri={redirect_uri}&"
+            f"scope=pages_manage_metadata,pages_read_engagement,leads_retrieval,"
+            f"pages_manage_leads&"
+            f"response_type=code"
+        )
+    else:
+        facebook_auth_url = None
+    
+    return render_template(
+        'admin_facebook_pages.html',
+        meta_pages=meta_pages,
+        facebook_auth_url=facebook_auth_url
+    )
+
+@app.route('/admin/facebook/callback')
+@login_required
+def facebook_oauth_callback():
+    """OAuth callback from Facebook"""
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+    
+    code = request.args.get('code')
+    error = request.args.get('error')
+    
+    if error:
+        flash(f'Facebook error: {error}')
+        return redirect(url_for('admin_facebook_pages'))
+    
+    if not code:
+        flash('No authorization code received')
+        return redirect(url_for('admin_facebook_pages'))
+    
+    try:
+        # Exchange code for access token
+        app_id = os.environ.get('FACEBOOK_APP_ID')
+        app_secret = os.environ.get('FACEBOOK_APP_SECRET')
+        redirect_uri = request.url_root.rstrip('/') + url_for('facebook_oauth_callback')
+        
+        if not app_id or not app_secret:
+            flash('Facebook app credentials not configured')
+            return redirect(url_for('admin_facebook_pages'))
+        
+        # Get user access token
+        token_url = "https://graph.facebook.com/v19.0/oauth/access_token"
+        token_params = {
+            'client_id': app_id,
+            'client_secret': app_secret,
+            'redirect_uri': redirect_uri,
+            'code': code
+        }
+        
+        token_response = requests.get(token_url, params=token_params, timeout=10)
+        token_response.raise_for_status()
+        token_data = token_response.json()
+        
+        user_access_token = token_data.get('access_token')
+        if not user_access_token:
+            flash('Failed to get access token from Facebook')
+            return redirect(url_for('admin_facebook_pages'))
+        
+        # Get user's pages with their access tokens
+        pages_url = f"{META_GRAPH_API}/me/accounts"
+        pages_params = {
+            'access_token': user_access_token,
+            'fields': 'id,name,access_token'
+        }
+        
+        pages_response = requests.get(pages_url, params=pages_params, timeout=10)
+        pages_response.raise_for_status()
+        pages_data = pages_response.json()
+        
+        pages = pages_data.get('data', [])
+        
+        if not pages:
+            flash('No Facebook pages found. Make sure you have admin access to your pages.')
+            return redirect(url_for('admin_facebook_pages'))
+        
+        # Save/update pages
+        for page in pages:
+            page_id = page.get('id')
+            page_name = page.get('name')
+            page_access_token = page.get('access_token')
+            
+            if page_id and page_access_token:
+                # Check if already exists
+                existing = MetaPage.query.filter_by(admin_id=current_user.id, page_id=page_id).first()
+                if existing:
+                    existing.page_access_token = page_access_token
+                    existing.page_name = page_name
+                else:
+                    meta_page = MetaPage(
+                        admin_id=current_user.id,
+                        page_id=page_id,
+                        page_name=page_name,
+                        page_access_token=page_access_token
+                    )
+                    db.session.add(meta_page)
+        
+        db.session.commit()
+        flash(f'Successfully connected {len(pages)} Facebook page(s)!')
+        return redirect(url_for('admin_facebook_pages'))
+        
+    except Exception as e:
+        print(f"[facebook_oauth_callback] Error: {e}")
+        flash(f'Error connecting Facebook: {str(e)}')
+        return redirect(url_for('admin_facebook_pages'))
+
+@app.route('/admin/facebook/disconnect/<page_id>', methods=['POST'])
+@login_required
+def disconnect_facebook_page(page_id):
+    """Disconnect a Facebook page"""
+    if session.get('user_type') != 'admin' or not isinstance(current_user, Admin):
+        flash('Access denied')
+        return redirect(url_for('index'))
+    
+    try:
+        meta_page = MetaPage.query.filter_by(admin_id=current_user.id, page_id=page_id).first()
+        if meta_page:
+            db.session.delete(meta_page)
+            db.session.commit()
+            flash(f'Disconnected {meta_page.page_name}')
+        else:
+            flash('Page not found')
+    except Exception as e:
+        print(f"[disconnect_facebook_page] Error: {e}")
+        flash('Error disconnecting page')
+        db.session.rollback()
+    
+    return redirect(url_for('admin_facebook_pages'))
 
 @app.route('/admin/add-sales', methods=['GET', 'POST'])
 @login_required
@@ -2728,6 +2909,114 @@ def _create_webhook_meta_ads_lead(admin_id: int):
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# Meta Graph API configuration
+META_GRAPH_API = "https://graph.facebook.com/v19.0"
+
+def _get_meta_page_by_id(page_id: str):
+    """Lookup MetaPage record by page_id and admin_id"""
+    meta_page = MetaPage.query.filter_by(page_id=page_id, admin_id=current_user.id if isinstance(current_user, Admin) else None).first()
+    return meta_page
+
+def _fetch_lead_from_meta(lead_id: str, page_access_token: str) -> dict:
+    """Call Meta Graph API to fetch lead data by leadgen_id"""
+    try:
+        url = f"{META_GRAPH_API}/{lead_id}"
+        params = {
+            "access_token": page_access_token
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"[_fetch_lead_from_meta] Error fetching lead {lead_id}: {e}")
+        return None
+
+def _parse_meta_lead_fields(lead_data: dict) -> dict:
+    """Parse Meta lead data and extract full_name, email, phone_number"""
+    if not lead_data or 'field_data' not in lead_data:
+        return {}
+    
+    fields = {}
+    try:
+        for field in lead_data.get('field_data', []):
+            field_name = field.get('name', '')
+            field_values = field.get('values', [])
+            if field_values:
+                fields[field_name] = field_values[0]
+    except Exception as e:
+        print(f"[_parse_meta_lead_fields] Error parsing fields: {e}")
+    
+    return fields
+
+def _process_meta_lead(page_id: str, leadgen_id: str, admin_id: int):
+    """Process a Meta lead: fetch from API, parse, and save to CRM"""
+    try:
+        # Find the meta_page record
+        meta_page = MetaPage.query.filter_by(page_id=page_id, admin_id=admin_id).first()
+        if not meta_page:
+            print(f"[_process_meta_lead] Meta page not found: page_id={page_id}, admin_id={admin_id}")
+            return False
+        
+        # Fetch lead data from Meta Graph API
+        lead_data = _fetch_lead_from_meta(leadgen_id, meta_page.page_access_token)
+        if not lead_data:
+            print(f"[_process_meta_lead] Failed to fetch lead data from Meta: leadgen_id={leadgen_id}")
+            return False
+        
+        # Parse lead fields
+        fields = _parse_meta_lead_fields(lead_data)
+        
+        # Extract required fields with defaults
+        name = fields.get('full_name', 'Meta Lead')
+        email = fields.get('email', 'noemail@example.com')
+        phone = fields.get('phone_number', '9876543210')
+        
+        # Get admin's bucket sales
+        sales_id = get_admin_sales_id(admin_id)
+        
+        # Create Query record
+        query = Query(
+            sales_id=sales_id,
+            admin_id=admin_id,
+            name=name,
+            phone_number=phone,
+            service_query=json.dumps({
+                'leadgen_id': leadgen_id,
+                'page_id': page_id,
+                'page_name': meta_page.page_name,
+                'meta_field_data': fields
+            }, default=str),
+            mail_id=email,
+            source="meta_ads",
+            closure="pending",
+            date_of_enquiry=get_ist_now()
+        )
+        
+        db.session.add(query)
+        db.session.commit()
+        
+        # Auto-assign if enabled
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                db.session.refresh(query)
+            except Exception:
+                pass
+        
+        # Send notification
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+        except Exception:
+            pass
+        
+        print(f"[_process_meta_lead] Lead processed successfully: query_id={query.id}")
+        return True
+        
+    except Exception as e:
+        print(f"[_process_meta_lead] Error processing lead: {e}")
+        return False
+
 @app.route("/api/webhook/magic-bricks/<admin_identifier>", methods=["POST"])
 def api_webhook_magic_bricks(admin_identifier):
     admin_user = get_admin_by_integration_identifier(admin_identifier)
@@ -2749,13 +3038,109 @@ def api_webhook_housing(admin_identifier):
         return jsonify({"status": "error", "message": "Admin not found"}), 404
     return _create_webhook_fixed_lead("housing", admin_user.id)
 
-@app.route("/api/webhook/meta-ads/<admin_identifier>", methods=["POST"])
-def api_webhook_meta_ads(admin_identifier):
-    admin_user = get_admin_by_integration_identifier(admin_identifier)
-    if not admin_user:
-        return jsonify({"status": "error", "message": "Admin not found"}), 404
-    return _create_webhook_meta_ads_lead(admin_user.id)
+@app.route("/api/webhook/meta-ads", methods=["GET","POST"])
+def api_webhook_meta_ads():
+    import datetime
 
+    def log_to_file(message):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open("logs.txt", "a") as f:
+            f.write(f"[{timestamp}] {message}\n")
+
+    log_to_file(f"Endpoint hit: {request.method} {request.url}")
+
+    # Meta verification
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        verify_token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+
+        log_to_file(f"GET params: mode={mode}, verify_token={verify_token}, challenge={challenge}")
+
+        if mode == "subscribe" and verify_token == "digitalhomeez_meta_verify":
+            log_to_file(f"Response: challenge={challenge}, status=200")
+            return challenge, 200
+        log_to_file("Response: Verification failed, status=403")
+        return "Verification failed", 403
+
+    try:
+        data = request.json
+        log_to_file(f"Received JSON payload: {json.dumps(data, indent=2)}")
+
+        entry = data.get("entry", [])[0]
+        page_id = entry.get("id")
+
+        change = entry.get("changes", [])[0]
+        value = change.get("value", {})
+
+        leadgen_id = value.get("leadgen_id")
+
+        log_to_file(f"Extracted: page_id={page_id}, leadgen_id={leadgen_id}")
+
+        if not page_id or not leadgen_id:
+            log_to_file("Response: Missing page_id or leadgen_id, status=200")
+            return jsonify({"status": "ok"}), 200
+
+        meta_page = MetaPage.query.filter_by(page_id=page_id).first()
+        if not meta_page:
+            log_to_file(f"Meta page not found for page_id={page_id}, status=200")
+            return jsonify({"status": "ok"}), 200
+
+        admin_id = meta_page.admin_id
+        sales_id = get_admin_sales_id(admin_id)
+
+        log_to_file(f"Found admin_id={admin_id}, sales_id={sales_id}")
+
+        query = Query(
+            sales_id=sales_id,
+            admin_id=admin_id,
+            name="Meta Ads Lead",
+            phone_number="",
+            service_query=json.dumps({
+                "leadgen_id": leadgen_id,
+                "page_id": page_id
+            }),
+            mail_id="",
+            source="meta_ads",
+            closure="pending",
+            date_of_enquiry=get_ist_now()
+        )
+
+        db.session.add(query)
+        db.session.commit()
+
+        log_to_file(f"Query created with id={query.id}")
+
+        # Auto-assign if enabled
+        if AUTO_ASSIGN:
+            try:
+                assign_sales_rep_to_query(query.id)
+                db.session.refresh(query)
+                log_to_file(f"Auto-assigned to sales_id={query.sales_id}")
+            except Exception as e:
+                log_to_file(f"Auto-assign failed: {e}")
+
+        # Send notification
+        try:
+            send_new_query_notification_to_sales(query.sales_id, query)
+            log_to_file("Notification sent successfully")
+        except Exception as e:
+            log_to_file(f"Notification failed: {e}")
+
+        log_to_file("Response: status=ok, status=200")
+        return jsonify({"status":"ok"}),200
+
+    except Exception as e:
+        log_to_file(f"Exception occurred: {e}")
+        log_to_file("Response: status=ok, status=200")
+        return jsonify({"status":"ok"}),200
+
+
+
+
+
+    
+    
 # API endpoint for Google Forms submissions (admin id or integration_slug in URL)
 @app.route("/api/formAdd/<admin_identifier>", methods=["POST"])
 def api_form_add(admin_identifier):

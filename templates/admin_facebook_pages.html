@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Facebook Pages - Admin - CRM System{% endblock %}
+{% block page_title %}Meta Lead Ads - Facebook Pages{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <p class="text-muted">
+        Connect your Facebook business pages to receive lead ads directly in your CRM.
+    </p>
+</div>
+
+{% if facebook_auth_url %}
+<div class="mb-4">
+    <a href="{{ facebook_auth_url }}" class="btn btn-primary">
+        <i class="fab fa-facebook me-2"></i>Connect New Facebook Page
+    </a>
+</div>
+{% else %}
+<div class="alert alert-warning">
+    <strong>Configuration Required:</strong> Set <code>FACEBOOK_APP_ID</code> and <code>FACEBOOK_APP_SECRET</code> in your <code>.env</code> file to enable Facebook OAuth.
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Connected Pages</h5>
+    </div>
+    <div class="card-body">
+        {% if meta_pages %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Page Name</th>
+                            <th>Page ID</th>
+                            <th>Connected</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for page in meta_pages %}
+                        <tr>
+                            <td>{{ page.page_name }}</td>
+                            <td><code>{{ page.page_id }}</code></td>
+                            <td>{{ page.created_at.strftime('%Y-%m-%d %H:%M') if page.created_at else 'N/A' }}</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('disconnect_facebook_page', page_id=page.page_id) }}" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Disconnect this page?')">
+                                        <i class="fas fa-unlink"></i> Disconnect
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-muted mb-0">No Facebook pages connected yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mt-4 border-info">
+    <div class="card-body">
+        <h6 class="card-title text-info"><i class="fas fa-info-circle me-1"></i> How It Works</h6>
+        <ol class="small mb-0">
+            <li>Click "Connect New Facebook Page" to authorize with Facebook</li>
+            <li>Select which pages you want to connect to this CRM inbox</li>
+            <li>When someone fills out a Lead Ad on your page, it automatically creates a lead in your CRM</li>
+            <li>The lead is assigned to your sales queue and notifications are sent to your team</li>
+        </ol>
+    </div>
+</div>
+
+<div class="card mt-4 border-warning">
+    <div class="card-body">
+        <h6 class="card-title text-warning"><i class="fas fa-cog me-1"></i> Setup in Facebook</h6>
+        <p class="small mb-2">After connecting your pages:</p>
+        <ol class="small mb-0">
+            <li>Go to your Lead Ads Form in Facebook Ads Manager</li>
+            <li>Find the "Integrations" or "CRM" section</li>
+            <li>Add webhook URL:
+                <code>{{ url_for('api_webhook_meta_ads', admin_identifier='YOUR_PAGE_ID', _external=True) }}</code>
+            </li>
+            <li>Meta will verify the webhook. Your CRM will automatically acknowledge it</li>
+            <li>That's it! Leads will start flowing into your CRM</li>
+        </ol>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Auto-scroll to alerts if present
+        const alerts = document.querySelectorAll('.alert');
+        if (alerts.length > 0) {
+            alerts[0].scrollIntoView({ behavior: 'smooth' });
+        }
+    });
+</script>
+{% endblock %}
